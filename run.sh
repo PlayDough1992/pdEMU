@@ -12,23 +12,28 @@ if [ ! -d "build" ]; then
 fi
 
 # Check if already built
-if [ -f "build/mGBA_Frontend" ]; then
-    echo "✓ Executable found: build/mGBA_Frontend"
+if [ -f "build/pdEMU.exe" ]; then
+    echo "✓ Executable found: build/pdEMU.exe"
     echo ""
     echo "Launching pdEMU Frontend..."
     echo ""
-    ./build/mGBA_Frontend
+    ./build/pdEMU.exe
 else
     echo "Executable not found. Building..."
     echo ""
-    make
+    
+    cd build
+    cmake -G "MinGW Makefiles" ..
+    mingw32-make
+    cd ..
+    
     echo ""
-    if [ -f "build/mGBA_Frontend" ]; then
+    if [ -f "build/pdEMU.exe" ]; then
         echo "✓ Build successful!"
         echo ""
         echo "Launching pdEMU Frontend..."
         echo ""
-        ./build/mGBA_Frontend
+        ./build/pdEMU.exe
     else
         echo "✗ Build failed. Please check the errors above."
         exit 1
