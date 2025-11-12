@@ -1,4 +1,4 @@
-# Universal RetroArch Frontend
+# pdEMU - Universal Libretro Frontend
 
 A multi-system emulator frontend that supports all RetroArch/libretro cores. Play games from dozens of classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, and many more!
 
@@ -57,46 +57,16 @@ Place BIOS files in the `BIOS/` directory.
 
 ## Getting Cores
 
-Before building, you need to install the following dependencies:
+pdEMU automatically downloads cores from the libretro buildbot. You can also manually download cores:
 
-### Ubuntu/Debian
 ```bash
-sudo apt-get update
-sudo apt-get install build-essential cmake libsdl2-dev
+./download_core.sh <core_name>
 ```
 
-### Fedora
+Or download all recommended cores:
+
 ```bash
-sudo dnf install gcc-c++ cmake SDL2-devel
-```
-
-### Arch Linux
-```bash
-sudo pacman -S base-devel cmake sdl2
-```
-
-## Getting the mGBA Core
-
-You need to obtain the mGBA libretro core file (`mgba_libretro.so`). You have several options:
-
-### Option 1: Download Pre-built Core
-Download from the libretro buildbot:
-```bash
-mkdir -p cores
-cd cores
-wget https://buildbot.libretro.com/nightly/linux/x86_64/latest/mgba_libretro.so.zip
-unzip mgba_libretro.so.zip
-cd ..
-```
-
-### Option 2: Build from Source
-```bash
-git clone https://github.com/libretro/mgba.git
-cd mgba
-mkdir build && cd build
-cmake .. -DLIBRETRO=ON -DBUILD_LIBRETRO=ON
-make
-# The core will be in build/mgba_libretro.so
+./download_all_cores.sh
 ```
 
 ## Building the Frontend
@@ -106,7 +76,7 @@ make
 make
 ```
 
-The executable will be created at `build/mGBA_Frontend`.
+The executable will be created at `build/pdEMU`.
 
 ### Using CMake
 ```bash
@@ -120,13 +90,10 @@ cd ..
 ## Usage
 
 ```bash
-./build/mGBA_Frontend <path_to_mgba_libretro.so> <path_to_rom.gba>
+./build/pdEMU
 ```
 
-### Example
-```bash
-./build/mGBA_Frontend cores/mgba_libretro.so ROMS/game.gba
-```
+The emulator will launch with a ROM browser GUI. Select a ROM to play!
 
 ## Directory Structure
 
@@ -141,24 +108,24 @@ These directories will be automatically referenced by the emulator.
 
 ## Controls
 
-### Keyboard
-| Key | GBA Button |
-|-----|------------|
+### In-Game Keyboard (varies by system)
+| Key | Common Mapping |
+|-----|----------------|
 | Arrow Keys | D-Pad |
-| Z | A Button |
-| X | B Button |
-| A | L Trigger |
-| S | R Trigger |
+| Z | A/Confirm |
+| X | B/Cancel |
+| A | Y/Action |
+| S | X/Action |
+| Q | L Trigger |
+| W | R Trigger |
 | Enter | Start |
-| Shift | Select |
-| ESC | Quit |
+| Backspace | Select |
+| ESC | Menu |
 | Tab | Fast-Forward |
 | F1 | Toggle FPS Counter |
 | F2 | Decrease Scale |
 | F3 | Increase Scale |
 | F4 | Toggle Filter |
-| F5 | Save State (coming soon) |
-| F9 | Load State (coming soon) |
 
 ### Gamepad
 Most standard USB gamepads are supported via SDL2's GameController API. The mapping follows the standard layout:
@@ -194,14 +161,14 @@ Most standard USB gamepads are supported via SDL2's GameController API. The mapp
 
 ## How It Works
 
-This frontend interfaces with the mGBA libretro core using the libretro API:
+This frontend interfaces with libretro cores using the libretro API:
 
-1. **Core Loading**: The frontend dynamically loads the mGBA shared library (.so file)
+1. **Core Loading**: The frontend dynamically loads libretro cores (.so files)
 2. **Callbacks**: Registers callbacks for video frames, audio samples, and input polling
-3. **Game Loop**: Runs the emulation loop at ~60 FPS (GBA native speed)
-4. **Rendering**: Converts core video output to SDL2 textures for display
+3. **Game Loop**: Runs the emulation loop at the target FPS for each system
+4. **Rendering**: Converts core video output to SDL2/OpenGL textures for display
 5. **Audio**: Buffers audio samples and plays them through SDL2's audio system
-6. **Input**: Maps keyboard/gamepad input to GBA button states
+6. **Input**: Maps keyboard/gamepad input to system-specific controls
 
 ## Libretro API
 
@@ -216,13 +183,15 @@ This project demonstrates how to:
 ## Troubleshooting
 
 ### "Failed to load core"
-- Make sure the path to the mGBA core file is correct
-- Verify the core file has execute permissions: `chmod +x mgba_libretro.so`
+- Make sure cores are in the `cores/` directory
+- Run `./download_all_cores.sh` to get recommended cores
+- Verify core files have execute permissions: `chmod +x cores/*.so`
 - Check if you're using the correct architecture (x86_64 vs ARM)
 
 ### "Failed to open game file"
-- Verify the ROM file path is correct
-- Ensure the ROM file is a valid GBA ROM (.gba extension)
+- Verify the ROM file is supported by the selected system
+- Ensure the ROM file has the correct extension
+- Some systems may require BIOS files (see BIOS_GUIDE.md)
 
 ### No audio
 - Check if SDL2 audio is properly configured on your system
@@ -233,33 +202,36 @@ This project demonstrates how to:
 - On slower systems, you may experience frame drops
 - Try closing other applications to free up resources
 
-## BIOS File (Optional)
+## BIOS Files
 
-The GBA BIOS file is optional but recommended for better compatibility. If you have a `gba_bios.bin` file, place it in the `BIOS/` directory:
+Some systems require BIOS files to run. See [BIOS_GUIDE.md](BIOS_GUIDE.md) for a complete list and instructions.
+
+Place BIOS files in the `BIOS/` directory:
 
 ```bash
 mkdir -p BIOS
-# Copy your gba_bios.bin to BIOS/
-cp gba_bios.bin BIOS/
+# Copy your BIOS files to BIOS/
+cp scph5501.bin BIOS/  # PlayStation example
 ```
 
-The emulator will automatically use it if present. Most games work fine without it using the built-in HLE BIOS in mGBA.
-
-## Extending the Frontend
+## Extending pdEMU
 
 Want to add more features? Here are some ideas:
 
-- **Save States**: Implement F5/F9 hotkeys for save/load states
-- **Config File**: Add support for custom key mappings via config file
-- **Cheats**: Interface with the core's cheat system
-- **Fast Forward**: Add speed control (2x, 4x, etc.)
-- **Screenshots**: Capture and save video frames
-- **On-Screen Display**: Show FPS, frame time, etc.
-- **GUI Menu**: Add ImGui for settings and ROM selection
+- **More Cores**: Add support for additional libretro cores
+- **Enhanced GUI**: Improve the ROM browser with cover art, metadata
+- **Netplay**: Implement online multiplayer via libretro netplay API
+- **Shaders**: Add shader support for advanced visual effects
+- **Recording**: Video/audio recording capabilities
+- **Achievements**: RetroAchievements integration
 
 ## License
 
-This frontend code is provided as-is for educational purposes. The mGBA core itself is licensed under the Mozilla Public License 2.0. Please respect the licenses of all components.
+This project is open source. The libretro cores maintain their respective licenses (most are MPL 2.0 or GPL). Please respect the licenses of all components.
+
+## Author
+
+Created by PlayDough1992 as a universal frontend for libretro cores.
 
 ## Resources
 
@@ -276,12 +248,15 @@ This frontend code is provided as-is for educational purposes. The mGBA core its
 
 ## Contributing
 
-Feel free to fork this project and add your own features! Some areas that could use improvement:
-- Better error handling
-- Configuration file support
-- More robust audio buffering
-- Additional core support (NES, SNES, etc.)
+Contributions are welcome! Feel free to fork this project and submit pull requests. Some areas that could use improvement:
+- Better error handling and logging
+- More comprehensive input configuration
+- Additional renderer backends (Vulkan, etc.)
+- Performance optimizations
+- Cross-platform compatibility (Windows, macOS)
 
 ## Author
 
-Created as a demonstration of how to build a custom RetroArch core frontend.
+Created by PlayDough1992 as a universal frontend for libretro cores.
+
+**Repository:** https://github.com/PlayDough1992/pdEMU
