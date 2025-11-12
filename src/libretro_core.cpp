@@ -1,7 +1,11 @@
 #include "libretro_core.h"
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
-#include <dlfcn.h>
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <dlfcn.h>
+#endif
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -148,15 +152,27 @@ bool LibretroCore::loadCore(const std::string& corePath) {
     }
 
     // Load the shared library
+#ifdef _WIN32
+    m_coreHandle = LoadLibraryA(corePath.c_str());
+    if (!m_coreHandle) {
+        std::cerr << "Failed to load core: Error code " << GetLastError() << std::endl;
+        return false;
+    }
+#else
     m_coreHandle = dlopen(corePath.c_str(), RTLD_LAZY);
     if (!m_coreHandle) {
         std::cerr << "Failed to load core: " << dlerror() << std::endl;
         return false;
     }
+#endif
 
     // Load all core functions
     if (!loadCoreFunctions()) {
+#ifdef _WIN32
+        FreeLibrary((HMODULE)m_coreHandle);
+#else
         dlclose(m_coreHandle);
+#endif
         m_coreHandle = nullptr;
         return false;
     }
@@ -178,12 +194,21 @@ bool LibretroCore::loadCore(const std::string& corePath) {
 }
 
 bool LibretroCore::loadCoreFunctions() {
+#ifdef _WIN32
+    #define LOAD_SYM(name) \
+        m_##name = (name##_t)GetProcAddress((HMODULE)m_coreHandle, #name); \
+        if (!m_##name) { \
+            std::cerr << "Failed to load symbol: " #name << std::endl; \
+            return false; \
+        }
+#else
     #define LOAD_SYM(name) \
         m_##name = (name##_t)dlsym(m_coreHandle, #name); \
         if (!m_##name) { \
             std::cerr << "Failed to load symbol: " #name << std::endl; \
             return false; \
         }
+#endif
 
     LOAD_SYM(retro_init)
     LOAD_SYM(retro_deinit)
@@ -282,7 +307,11 @@ void LibretroCore::unloadCore() {
             m_retro_deinit();
         }
         if (m_coreHandle) {
+#ifdef _WIN32
+            FreeLibrary((HMODULE)m_coreHandle);
+#else
             dlclose(m_coreHandle);
+#endif
             m_coreHandle = nullptr;
         }
         m_coreLoaded = false;
