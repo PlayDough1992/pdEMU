@@ -1,8 +1,8 @@
-# pdEMU - Universal Libretro Frontend
+# pdEMU - Universal Libretro Frontend (Windows)
 
-A multi-system emulator frontend that supports all RetroArch/libretro cores. Play games from dozens of classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, and many more!
+A multi-system emulator frontend for Windows that supports all RetroArch/libretro cores. Play games from dozens of classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, and many more!
 
-**Now available on Windows!** This branch contains the Windows port with full compatibility.
+**Native Windows build with full OpenGL support!**
 
 ## Features
 
@@ -22,39 +22,34 @@ A multi-system emulator frontend that supports all RetroArch/libretro cores. Pla
 
 | System | Extensions | Recommended Core |
 |--------|-----------|------------------|
-| Game Boy Advance | .gba | mgba_libretro.so |
-| Game Boy / GBC | .gb, .gbc | gambatte_libretro.so |
-| NES | .nes | fceumm_libretro.so |
-| SNES | .smc, .sfc | snes9x_libretro.so |
-| Nintendo 64 | .n64, .z64 | mupen64plus_next_libretro.so |
-| Nintendo DS | .nds | desmume_libretro.so |
-| GameCube | .iso, .gcm, .gcz | dolphin_libretro.so |
-| Wii | .iso, .wbfs, .wad | dolphin_libretro.so |
-| Genesis / Mega Drive | .md, .gen | genesis_plus_gx_libretro.so |
-| Sega Master System | .sms | genesis_plus_gx_libretro.so |
-| Game Gear | .gg | genesis_plus_gx_libretro.so |
-| PlayStation | .cue, .chd | beetle_psx_hw_libretro.so |
-| PSP | .iso, .cso | ppsspp_libretro.so |
-| Arcade | .zip | fbneo_libretro.so |
+| Game Boy Advance | .gba | mgba_libretro.dll |
+| Game Boy / GBC | .gb, .gbc | gambatte_libretro.dll |
+| NES | .nes | fceumm_libretro.dll |
+| SNES | .smc, .sfc | snes9x_libretro.dll |
+| Nintendo 64 | .n64, .z64 | mupen64plus_next_libretro.dll |
+| Nintendo DS | .nds | desmume_libretro.dll |
+| GameCube | .iso, .gcm, .gcz | dolphin_libretro.dll |
+| Wii | .iso, .wbfs, .wad | dolphin_libretro.dll |
+| Genesis / Mega Drive | .md, .gen | genesis_plus_gx_libretro.dll |
+| Sega Master System | .sms | genesis_plus_gx_libretro.dll |
+| Game Gear | .gg | genesis_plus_gx_libretro.dll |
+| PlayStation | .cue, .chd | beetle_psx_hw_libretro.dll |
+| PSP | .iso, .cso | ppsspp_libretro.dll |
+| Arcade | .zip | fbneo_libretro.dll |
 | And many more! | | |
 
 ## Prerequisites
 
 Before building, you need to install the following dependencies:
 
-### Windows
+### Windows (MSYS2)
+
 See [WINDOWS_BUILD_SETUP.md](WINDOWS_BUILD_SETUP.md) for detailed Windows build instructions.
 
 **Quick start:**
-- Install MSYS2 from https://www.msys2.org/
-- Open MSYS2 MinGW 64-bit terminal
-- Run: `pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-cmake mingw-w64-x86_64-make`
-
-### Linux (Ubuntu/Debian)
-```bash
-sudo apt-get update
-sudo apt-get install build-essential cmake libsdl2-dev
-```
+1. Install MSYS2 from https://www.msys2.org/
+2. Open MSYS2 MinGW 64-bit terminal
+3. Run: `pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image mingw-w64-x86_64-cmake mingw-w64-x86_64-make mingw-w64-x86_64-gcc`
 
 ## BIOS Files
 
@@ -68,36 +63,27 @@ Place BIOS files in the `BIOS/` directory.
 
 ## Getting Cores
 
-### Windows
 Download Windows cores (.dll files) using the PowerShell script:
 
 ```powershell
 .\download_cores_windows.ps1
 ```
 
-Or manually download from: https://buildbot.libretro.com/nightly/windows/x86_64/latest/
+This will automatically download popular cores from the libretro buildbot.
 
-### Linux
-pdEMU automatically downloads cores from the libretro buildbot. You can also manually download cores:
+Or manually download cores from: https://buildbot.libretro.com/nightly/windows/x86_64/latest/
 
-```bash
-./download_core.sh <core_name>
-```
-
-Or download all recommended cores:
-
-```bash
-./download_all_cores.sh
-```
+Place downloaded `.dll` files in the `cores/` directory.
 
 ## Building the Frontend
 
-### Windows (MSYS2)
+### Using MSYS2 MinGW 64-bit Terminal
 
-**Option 1: Using the run script**
+**Option 1: Quick build with run script**
 ```bash
 ./run.sh
 ```
+This will build and run pdEMU automatically.
 
 **Option 2: Manual build**
 ```bash
@@ -109,36 +95,21 @@ mingw32-make
 
 The executable will be created at `build/pdEMU.exe`.
 
-### Linux - Using Make (Recommended)
-```bash
-make
-```
-
-The executable will be created at `build/pdEMU`.
-
-### Linux - Using CMake
-```bash
-mkdir build
-cd build
-cmake ..
-make
-cd ..
-```
-
 ## Usage
 
-### Windows
+### From PowerShell
 ```powershell
 .\run.ps1
 ```
-Or directly:
-```powershell
-.\build\pdEMU.exe
+
+### From MSYS2 Terminal
+```bash
+./build/pdEMU.exe
 ```
 
-### Linux
-```bash
-./build/pdEMU
+### Direct execution
+```powershell
+.\build\pdEMU.exe
 ```
 
 The emulator will launch with a ROM browser GUI. Select a ROM to play!
@@ -146,10 +117,11 @@ The emulator will launch with a ROM browser GUI. Select a ROM to play!
 ## Directory Structure
 
 The project uses the following directory layout:
-- `cores/` - Libretro core files (*.dll on Windows, *.so on Linux)
+- `cores/` - Libretro core files (*.dll)
 - `ROMS/` - Game ROM files organized by system
 - `BIOS/` - System BIOS files (when required)
 - `SAVES/` - Save files and save states
+- `LOGO/` - Splash screen logo (pdEMU_LOGO.png)
 - `LOGO/` - Splash screen logo (pdEMU_LOGO.png)
 
 These directories will be automatically referenced by the emulator.
