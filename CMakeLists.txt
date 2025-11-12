@@ -8,8 +8,38 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Find required packages
 find_package(SDL2 REQUIRED)
 
+# Try to find SDL2_image
+if(WIN32)
+    # On Windows with MSYS2, we need to find SDL2_image manually
+    find_library(SDL2_IMAGE_LIBRARY NAMES SDL2_image)
+    if(SDL2_IMAGE_LIBRARY)
+        set(SDL2_IMAGE_LIBRARIES ${SDL2_IMAGE_LIBRARY})
+    else()
+        # If not found, we'll try pkg-config
+        find_package(PkgConfig)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(SDL2_IMAGE REQUIRED SDL2_image)
+        endif()
+    endif()
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2_IMAGE REQUIRED SDL2_image)
+endif()
+
 # Find OpenGL
 find_package(OpenGL REQUIRED)
+
+# ImGui source files
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
+)
 
 # Source files
 set(SOURCES
@@ -27,6 +57,7 @@ set(SOURCES
     src/video_renderer_gl.cpp
     src/rom_config.cpp
     src/cheat_database.cpp
+    ${IMGUI_SOURCES}
 )
 
 # Header files
@@ -52,6 +83,8 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${SDL2_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIR}
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
 )
 
 # Create executable
@@ -61,12 +94,15 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 if(WIN32)
     target_link_libraries(${PROJECT_NAME}
         ${SDL2_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARIES}
         ${OPENGL_LIBRARIES}
         opengl32
+        SDL2_image
     )
 else()
     target_link_libraries(${PROJECT_NAME}
         ${SDL2_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARIES}
         ${OPENGL_LIBRARIES}
         dl
         pthread

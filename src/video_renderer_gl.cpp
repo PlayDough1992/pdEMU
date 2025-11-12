@@ -1,6 +1,15 @@
 #include "video_renderer_gl.h"
+#include <SDL2/SDL_opengl.h>
 #include <iostream>
 #include <cstring>
+
+// Define missing GL constants if not available
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
 
 VideoRendererGL::VideoRendererGL()
     : m_window(nullptr)

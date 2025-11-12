@@ -2,7 +2,7 @@
 #define VIDEO_RENDERER_GL_H
 
 #include <SDL2/SDL.h>
-#include <GL/gl.h>
+#include <SDL2/SDL_opengl.h>
 #include <cstdint>
 
 class VideoRendererGL {

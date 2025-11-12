@@ -9,9 +9,15 @@
 #include "system_database.h"
 #include "core_manager.h"
 #include "splash_screen.h"
+#include <SDL2/SDL_opengl.h>
 #include <iostream>
 #include <chrono>
 #include <thread>
+
+// Define missing GL constants if not available
+#ifndef GL_SHADING_LANGUAGE_VERSION
+#define GL_SHADING_LANGUAGE_VERSION 0x8B8C
+#endif
 
 // Global pointers for callbacks
 static VideoRenderer* g_videoRenderer = nullptr;
