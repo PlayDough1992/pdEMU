@@ -96,12 +96,12 @@ extern "C" {
                 viewportY = (windowHeight - viewportHeight) / 2;
             }
             
-            // Clear the entire window to black first (prevents flickering artifacts)
-            glViewport(0, 0, windowWidth, windowHeight);
+            // Clear the framebuffer before the core renders
+            // This must happen BEFORE setting the game viewport
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             
-            // Now set the viewport for the game to render into
+            // Set viewport for the game to render into
             glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
             
             // CRITICAL: Set up orthographic projection to scale game coordinates to viewport
@@ -316,6 +316,10 @@ void LibretroCore::unloadCore() {
         }
         m_coreLoaded = false;
         g_coreInstance = nullptr;
+        
+        // Clear hardware render callbacks
+        m_hw_context_reset = nullptr;
+        m_hw_context_destroy = nullptr;
     }
 }
 
@@ -696,11 +700,15 @@ void LibretroCore::callContextReset() {
 }
 
 void LibretroCore::callContextDestroy() {
-    if (m_hw_context_destroy) {
+    if (m_hw_context_destroy && m_coreLoaded) {
         std::cout << "Calling core's context_destroy callback..." << std::endl;
-        m_hw_context_destroy();
-        std::cout << "Context destroy complete" << std::endl;
+        try {
+            m_hw_context_destroy();
+            std::cout << "Context destroy complete" << std::endl;
+        } catch (...) {
+            std::cerr << "Exception in context_destroy callback" << std::endl;
+        }
     } else {
-        std::cout << "No context_destroy callback to call" << std::endl;
+        std::cout << "No context_destroy callback to call (or core not loaded)" << std::endl;
     }
 }

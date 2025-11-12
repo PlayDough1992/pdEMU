@@ -4,6 +4,7 @@ build/
 *.a
 *.dylib
 *.dll
+*.exe
 compile_commands.json
 .vscode/
 .idea/
@@ -17,3 +18,10 @@ cores/
 ROMS/
 BIOS/
 SAVES/
+imgui.ini
+*.zip
+*.log
+
+# Windows specific
+Thumbs.db
+desktop.ini

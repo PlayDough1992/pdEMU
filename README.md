@@ -2,6 +2,8 @@
 
 A multi-system emulator frontend that supports all RetroArch/libretro cores. Play games from dozens of classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, and many more!
 
+**Now available on Windows!** This branch contains the Windows port with full compatibility.
+
 ## Features
 
 - 🎮 **Multi-System Support** - Supports 20+ gaming systems
@@ -14,6 +16,7 @@ A multi-system emulator frontend that supports all RetroArch/libretro cores. Pla
 - 🎨 **Internal Resolution Scaling** - Render at higher resolutions for cleaner graphics
 - ⚡ **Performance** - Fast-forward, FPS counter, and optimization options
 - 🎬 **Splash Screen** - Custom branded logo display on launch
+- 🪟 **Windows Support** - Native Windows build with full OpenGL support
 
 ## Supported Systems
 
@@ -65,6 +68,16 @@ Place BIOS files in the `BIOS/` directory.
 
 ## Getting Cores
 
+### Windows
+Download Windows cores (.dll files) using the PowerShell script:
+
+```powershell
+.\download_cores_windows.ps1
+```
+
+Or manually download from: https://buildbot.libretro.com/nightly/windows/x86_64/latest/
+
+### Linux
 pdEMU automatically downloads cores from the libretro buildbot. You can also manually download cores:
 
 ```bash
@@ -79,14 +92,31 @@ Or download all recommended cores:
 
 ## Building the Frontend
 
-### Using Make (Recommended)
+### Windows (MSYS2)
+
+**Option 1: Using the run script**
+```bash
+./run.sh
+```
+
+**Option 2: Manual build**
+```bash
+mkdir build
+cd build
+cmake -G "MinGW Makefiles" ..
+mingw32-make
+```
+
+The executable will be created at `build/pdEMU.exe`.
+
+### Linux - Using Make (Recommended)
 ```bash
 make
 ```
 
 The executable will be created at `build/pdEMU`.
 
-### Using CMake
+### Linux - Using CMake
 ```bash
 mkdir build
 cd build
@@ -97,6 +127,16 @@ cd ..
 
 ## Usage
 
+### Windows
+```powershell
+.\run.ps1
+```
+Or directly:
+```powershell
+.\build\pdEMU.exe
+```
+
+### Linux
 ```bash
 ./build/pdEMU
 ```
@@ -106,7 +146,7 @@ The emulator will launch with a ROM browser GUI. Select a ROM to play!
 ## Directory Structure
 
 The project uses the following directory layout:
-- `cores/` - Libretro core files (*.so)
+- `cores/` - Libretro core files (*.dll on Windows, *.so on Linux)
 - `ROMS/` - Game ROM files organized by system
 - `BIOS/` - System BIOS files (when required)
 - `SAVES/` - Save files and save states

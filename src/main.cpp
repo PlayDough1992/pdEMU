@@ -482,9 +482,9 @@ int main(int argc, char* argv[]) {
         // Make sure the context is current before calling the callback
         videoRendererGL.makeCurrent();
         
-        // Disable vsync to prevent potential hanging
-        SDL_GL_SetSwapInterval(0);
-        std::cout << "VSync disabled (swap interval = " << SDL_GL_GetSwapInterval() << ")" << std::endl;
+        // Enable vsync for smooth rendering
+        SDL_GL_SetSwapInterval(1);
+        std::cout << "VSync enabled (swap interval = " << SDL_GL_GetSwapInterval() << ")" << std::endl;
         
         // Verify GL context is valid before calling context_reset
         std::cout << "Verifying OpenGL context before context_reset..." << std::endl;
@@ -775,26 +775,44 @@ int main(int argc, char* argv[]) {
     std::cout << "Saving SRAM to: " << sramPath << std::endl;
     core.saveSRAM(sramPath);
     
+    // Unload game first
+    std::cout << "Unloading game..." << std::endl;
+    core.unloadGame();
+    
+    // Shutdown audio
+    std::cout << "Shutting down audio..." << std::endl;
+    audioRenderer.shutdown();
+    
     if (!g_useOpenGL) {
         guiManager.shutdown();
     }
-    audioRenderer.shutdown();
     
     if (g_useOpenGL) {
-        // Call the core's context_destroy callback before cleaning up GL
-        videoRendererGL.makeCurrent();
-        core.callContextDestroy();
+        // Make context current before cleanup
+        std::cout << "Cleaning up OpenGL context..." << std::endl;
+        if (gameWindow && SDL_GL_GetCurrentContext()) {
+            videoRendererGL.makeCurrent();
+            
+            // Call the core's context_destroy callback if it exists
+            core.callContextDestroy();
+        }
         
+        // Shutdown video renderer (this will delete the GL context)
         videoRendererGL.shutdown();
+        
+        // Destroy window after GL context is gone
         if (gameWindow) {
+            std::cout << "Destroying game window..." << std::endl;
             SDL_DestroyWindow(gameWindow);
+            gameWindow = nullptr;
             g_gameWindow = nullptr;  // Clear global pointer
         }
     } else {
         videoRenderer.shutdown();
     }
     
-    core.unloadGame();
+    // Unload core last
+    std::cout << "Unloading core..." << std::endl;
     core.unloadCore();
     
     // Reset OpenGL flag

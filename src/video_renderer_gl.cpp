@@ -143,13 +143,17 @@ void VideoRendererGL::render() {
 
 void VideoRendererGL::present() {
     if (!m_initialized) return;
+    
     if (m_debugMode) {
         GLenum err = glGetError();
         if (err != GL_NO_ERROR) {
             std::cerr << "[OpenGL Debug] (before swap) error: 0x" << std::hex << err << std::dec << std::endl;
         }
     }
+    
+    // Swap buffers to display the current frame
     SDL_GL_SwapWindow(m_window);
+    
     if (m_debugMode) {
         GLenum err = glGetError();
         if (err != GL_NO_ERROR) {
