@@ -1,0 +1,20 @@
+# pdEMU Configuration
+
+# Video Settings
+window_scale=0
+internal_scale=0
+vsync=true
+linear_filter=true
+
+# Audio Settings
+audio_volume=1
+
+# Paths
+cores_path=cores
+roms_path=ROMS
+bios_path=BIOS
+saves_path=SAVES
+
+# Other
+show_fps=true
+last_rom=ROMS/Donkey Kong 64 (USA)_N64.z64
