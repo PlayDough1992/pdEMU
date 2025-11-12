@@ -39,7 +39,15 @@ A multi-system emulator frontend that supports all RetroArch/libretro cores. Pla
 
 Before building, you need to install the following dependencies:
 
-### Ubuntu/Debian
+### Windows
+See [WINDOWS_BUILD_SETUP.md](WINDOWS_BUILD_SETUP.md) for detailed Windows build instructions.
+
+**Quick start:**
+- Install MSYS2 from https://www.msys2.org/
+- Open MSYS2 MinGW 64-bit terminal
+- Run: `pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-cmake mingw-w64-x86_64-make`
+
+### Linux (Ubuntu/Debian)
 ```bash
 sudo apt-get update
 sudo apt-get install build-essential cmake libsdl2-dev
