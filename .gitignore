@@ -3,7 +3,8 @@ build/
 *.so
 *.a
 *.dylib
-*.dll
+# Don't ignore DLLs in build directory - they're needed for distribution
+!build/*.dll
 *.exe
 compile_commands.json
 .vscode/

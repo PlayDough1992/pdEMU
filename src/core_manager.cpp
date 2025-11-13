@@ -35,8 +35,8 @@ void CoreManager::initializeCoreMappings() {
     m_systemToCoreFile["gamegear"] = std::string("genesis_plus_gx_libretro") + ext;
     m_systemToCoreFile["saturn"] = std::string("beetle_saturn_libretro") + ext;
     m_systemToCoreFile["dreamcast"] = std::string("flycast_libretro") + ext;
-    m_systemToCoreFile["psx"] = std::string("beetle_psx_hw_libretro") + ext;
-    m_systemToCoreFile["ps2"] = std::string("play_libretro") + ext;
+    m_systemToCoreFile["psx"] = std::string("pcsx_rearmed_libretro") + ext;  // Changed to pcsx_rearmed
+    m_systemToCoreFile["ps2"] = std::string("pcsx2_libretro") + ext;  // Changed to pcsx2
     m_systemToCoreFile["psp"] = std::string("ppsspp_libretro") + ext;
     m_systemToCoreFile["arcade"] = std::string("fbneo_libretro") + ext;
     m_systemToCoreFile["atari2600"] = std::string("stella_libretro") + ext;

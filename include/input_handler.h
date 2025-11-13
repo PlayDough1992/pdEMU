@@ -62,6 +62,11 @@ private:
     int16_t m_analogL2; 
     int16_t m_analogR2; 
     
+    // Pointer/touchscreen state (for DS touchscreen)
+    int16_t m_pointerX;
+    int16_t m_pointerY;
+    bool m_pointerPressed;
+    
     void initKeyMappings();
     void initGBAMappings();
     void initSNESMappings();

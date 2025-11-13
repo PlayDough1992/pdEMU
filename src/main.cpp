@@ -11,8 +11,12 @@
 #include "splash_screen.h"
 #include <SDL2/SDL_opengl.h>
 #include <iostream>
+#include <fstream>
 #include <chrono>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // Define missing GL constants if not available
 #ifndef GL_SHADING_LANGUAGE_VERSION
@@ -79,10 +83,59 @@ int16_t input_state_callback(unsigned port, unsigned device, unsigned index, uns
     return 0;
 }
 
+// Get the directory where the executable is located
+std::string getExecutableDirectory() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string exePath(buffer);
+    // Find the last backslash
+    size_t pos = exePath.find_last_of("\\/");
+    if (pos != std::string::npos) {
+        return exePath.substr(0, pos);
+    }
+    return ".";
+#else
+    // Linux implementation (if needed in future)
+    return ".";
+#endif
+}
+
 int main(int argc, char* argv[]) {
+    // Get the executable directory for portable paths
+    std::string exeDir = getExecutableDirectory();
+    std::cout << "Executable directory: " << exeDir << std::endl;
+    
     // Load config
     ConfigManager configManager;
     configManager.load();
+    
+    // Make paths relative to executable if they are not absolute
+    auto& config = configManager.getConfig();
+    
+    // Helper lambda to make path absolute if it's relative
+    auto makeAbsolutePath = [&exeDir](std::string& path) {
+        // Check if path is already absolute (starts with drive letter on Windows)
+        if (path.length() >= 2 && path[1] == ':') {
+            return; // Already absolute
+        }
+        // Check if path starts with ./ or ../
+        if (path[0] != '/' && path[0] != '\\') {
+            // It's relative, prepend executable directory
+            path = exeDir + "\\" + path;
+        }
+    };
+    
+    makeAbsolutePath(config.coresPath);
+    makeAbsolutePath(config.romsPath);
+    makeAbsolutePath(config.biosPath);
+    makeAbsolutePath(config.savesPath);
+    
+    std::cout << "Using paths:" << std::endl;
+    std::cout << "  Cores: " << config.coresPath << std::endl;
+    std::cout << "  ROMs:  " << config.romsPath << std::endl;
+    std::cout << "  BIOS:  " << config.biosPath << std::endl;
+    std::cout << "  Saves: " << config.savesPath << std::endl;
     
     // Initialize system database
     SystemDatabase systemDb;
@@ -99,13 +152,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Create window for ROM browser
+    // Get desktop resolution for fullscreen ROM browser
+    SDL_DisplayMode displayMode;
+    if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+
+    // Create fullscreen borderless window for ROM browser
     SDL_Window* window = SDL_CreateWindow(
         "pdEMU - Universal Emulator",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+        0, 0,
+        displayMode.w, displayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
 
     if (!window) {
@@ -398,7 +458,15 @@ int main(int argc, char* argv[]) {
     // Load the game
     std::cout << "Loading game: " << selectedRomPath << std::endl;
     std::cout.flush();
-    if (!core.loadGame(selectedRomPath)) {
+    
+    // Convert relative path to absolute path if needed
+    std::string absoluteRomPath = selectedRomPath;
+    if (selectedRomPath.length() > 1 && selectedRomPath[1] != ':') {
+        // Relative path - make it absolute using executable directory
+        absoluteRomPath = exeDir + "\\" + selectedRomPath;
+    }
+    
+    if (!core.loadGame(absoluteRomPath)) {
         std::cerr << "Failed to load game" << std::endl;
         core.unloadCore();
         SDL_Quit();
@@ -428,8 +496,23 @@ int main(int argc, char* argv[]) {
     g_gameWidth = avInfo.geometry.base_width;
     g_gameHeight = avInfo.geometry.base_height;
     
+    // Write to log file for debugging
+    std::ofstream logFile("pdemu_debug.log", std::ios::app);
+    logFile << "=== NEW SESSION ===" << std::endl;
+    logFile << "[INIT] Setting g_gameWidth=" << g_gameWidth << ", g_gameHeight=" << g_gameHeight << std::endl;
+    logFile << "[INIT] avInfo.geometry.base_width=" << avInfo.geometry.base_width 
+            << ", base_height=" << avInfo.geometry.base_height << std::endl;
+    logFile << "[INIT] avInfo.geometry.max_width=" << avInfo.geometry.max_width 
+            << ", max_height=" << avInfo.geometry.max_height << std::endl;
+    logFile.close();
+    
+    std::cout << "[INIT] Setting g_gameWidth=" << g_gameWidth << ", g_gameHeight=" << g_gameHeight << std::endl;
+    std::cout << "[INIT] avInfo.geometry.base_width=" << avInfo.geometry.base_width 
+              << ", base_height=" << avInfo.geometry.base_height << std::endl;
+    
     std::cout << "Core: " << sysInfo.library_name << " " << sysInfo.library_version << std::endl;
     std::cout << "Resolution: " << avInfo.geometry.base_width << "x" << avInfo.geometry.base_height << std::endl;
+    std::cout << "Max Resolution: " << avInfo.geometry.max_width << "x" << avInfo.geometry.max_height << std::endl;
     std::cout << "FPS: " << avInfo.timing.fps << std::endl;
 
     // Initialize video renderer (OpenGL or SDL2 based on system)
@@ -440,18 +523,31 @@ int main(int argc, char* argv[]) {
         // NOTE: Keep temporary context alive until after we create the real window
         // and call context_reset() - the core may need GL during retro_load_game()
         
-        // Create proper OpenGL window with correct size, enforce minimum 640x480
-        int winWidth = avInfo.geometry.base_width * config.windowScale;
-        int winHeight = avInfo.geometry.base_height * config.windowScale;
-        if (winWidth < 640) winWidth = 640;
-        if (winHeight < 480) winHeight = 480;
+        // Get desktop display mode to match screen size
+        SDL_DisplayMode displayMode;
+        if (SDL_GetDesktopDisplayMode(0, &displayMode) != 0) {
+            std::cerr << "Failed to get desktop display mode: " << SDL_GetError() << std::endl;
+            displayMode.w = 1920;
+            displayMode.h = 1080;
+        }
+        
+        std::cout << "Desktop resolution: " << displayMode.w << "x" << displayMode.h << std::endl;
+        
+        // Create fullscreen window (fills entire screen)
+        // The viewport will handle centering 4:3 content with black bars
+        int gameWindowWidth = displayMode.w;
+        int gameWindowHeight = displayMode.h;
+        
         std::cout << "Initializing OpenGL renderer..." << std::endl;
+        std::cout << "Creating fullscreen borderless window at " << gameWindowWidth << "x" << gameWindowHeight << std::endl;
+        
+        // Create borderless fullscreen window
         gameWindow = SDL_CreateWindow(
             windowTitle.c_str(),
-            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            winWidth,
-            winHeight,
-            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+            0, 0,  // Top-left corner of screen
+            gameWindowWidth,
+            gameWindowHeight,
+            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
         );
         
         if (!gameWindow) {
@@ -745,8 +841,8 @@ int main(int argc, char* argv[]) {
             fpsTime = currentTime;
         }
 
-        // Frame timing (skip if fast forward or menu open)
-        if (!fastForward && !showMenu) {
+        // Frame timing - VSync handles timing for OpenGL, manual sleep for software renderer
+        if (!g_useOpenGL && !fastForward && !showMenu) {
             auto frameElapsed = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::high_resolution_clock::now() - currentTime);
             
@@ -760,6 +856,7 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
+        // For OpenGL with VSync, SDL_GL_SwapWindow blocks until vblank, so no manual sleep needed
 
         lastTime = std::chrono::high_resolution_clock::now();
     }
@@ -818,13 +915,20 @@ int main(int argc, char* argv[]) {
     // Reset OpenGL flag
     g_useOpenGL = false;
 
-    // Recreate ROM browser window for next game
+    // Get desktop resolution for fullscreen ROM browser
+    SDL_DisplayMode displayMode;
+    if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+
+    // Recreate fullscreen borderless ROM browser window for next game
     window = SDL_CreateWindow(
         "pdEMU - Universal Emulator",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+        0, 0,
+        displayMode.w, displayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
 
     if (!window) {

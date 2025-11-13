@@ -132,10 +132,16 @@ void GuiManager::renderMainMenu(bool& showMenu, bool& showSettings) {
 
 void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedRom, bool& shouldLaunch, bool& showSettings) {
     if (!m_initialized) return;
-    ImGui::SetNextWindowPos(ImVec2(50, 50), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(900, 600), ImGuiCond_FirstUseEver);
     
-    if (!ImGui::Begin("ROM Browser", nullptr, ImGuiWindowFlags_NoCollapse)) {
+    // Get the current display size from ImGui IO
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // Make the ROM browser window fill the entire screen with padding
+    float padding = 20.0f;
+    ImGui::SetNextWindowPos(ImVec2(padding, padding), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x - padding * 2, io.DisplaySize.y - padding * 2), ImGuiCond_Always);
+    
+    if (!ImGui::Begin("pdEMU - ROM Browser", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar)) {
         ImGui::End();
         return;
     }
@@ -156,8 +162,11 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
     // Get ROMs organized by system
     auto romsBySystem = romManager.getRomsBySystem();
     
-    // Create columns for better layout
-    ImGui::BeginChild("RomListChild", ImVec2(0, -40), true);
+    // Calculate available height for the child window (subtract header, search bar, separators, and bottom padding)
+    float availableHeight = ImGui::GetContentRegionAvail().y - 50;
+    
+    // Create scrollable child window for ROM list
+    ImGui::BeginChild("RomListChild", ImVec2(0, availableHeight), true);
     
     std::string searchStr = m_searchBuffer;
     std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
@@ -195,9 +204,9 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
                 bool isSelected = (rom.fullPath == selectedRom);
                 
 
-                // ROM name as selectable (takes most of the width)
+                // ROM name as selectable (leave space for button + checkbox on the right)
                 ImGui::BeginGroup();
-                if (ImGui::Selectable(rom.displayName.c_str(), isSelected, 0, ImVec2(ImGui::GetContentRegionAvail().x - 120, 20))) {
+                if (ImGui::Selectable(rom.displayName.c_str(), isSelected, 0, ImVec2(ImGui::GetContentRegionAvail().x - 240, 20))) {
                     selectedRom = rom.fullPath;
                     m_selectedRomIndex = i;
                     // If this is a Dolphin ROM, remember it for backend selection
@@ -239,6 +248,13 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
                     selectedRom = rom.fullPath;  // Remember which ROM we're changing
                 }
                 
+                // Debug mode checkbox on the same line
+                ImGui::SameLine();
+                ImGui::Checkbox("Debug", &m_debugMode);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Enable debug mode to catch and log OpenGL errors");
+                }
+                
                 // System selection popup
                 if (ImGui::BeginPopup("system_selector")) {
                     ImGui::Text("Select System for:");
@@ -251,7 +267,15 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
                         if (ImGui::Selectable(system.displayName.c_str())) {
                             // Rename the file to include the system marker
                             std::string oldPath = rom.fullPath;
-                            std::string dir = oldPath.substr(0, oldPath.find_last_of('/'));
+                            
+                            // Use platform-appropriate path separator
+                            #ifdef _WIN32
+                            char sep = '\\';
+                            #else
+                            char sep = '/';
+                            #endif
+                            
+                            std::string dir = oldPath.substr(0, oldPath.find_last_of("/\\"));
                             std::string filename = rom.filename;
                             
                             // Remove any existing marker
@@ -273,7 +297,7 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
                                 filename.insert(dotPos, system.marker);
                             }
                             
-                            std::string newPath = dir + "/" + filename;
+                            std::string newPath = dir + sep + filename;
                             
                             // Rename the file
                             if (rename(oldPath.c_str(), newPath.c_str()) == 0) {
@@ -300,14 +324,7 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
     
     ImGui::EndChild();
     
-    // Debug mode toggle (for all systems, but especially useful for OpenGL hardware rendering)
-    ImGui::Separator();
-    ImGui::Checkbox("Debug Mode (Skip/Log OpenGL Errors)", &m_debugMode);
-    ImGui::SameLine();
-    ImGui::TextDisabled("?");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("When enabled, the emulator will catch and log OpenGL errors, skipping invalid calls so the game can continue for debugging.");
-    }
+    // Bottom buttons
     ImGui::Separator();
     
     if (!selectedRom.empty()) {

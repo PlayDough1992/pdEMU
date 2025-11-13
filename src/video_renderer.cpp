@@ -31,14 +31,21 @@ bool VideoRenderer::init(const char* title, int width, int height) {
     m_width = width;
     m_height = height;
 
-    // Create window
+    // Get desktop resolution for fullscreen
+    SDL_DisplayMode displayMode;
+    if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+
+    // Create fullscreen borderless window
     m_window = SDL_CreateWindow(
         title,
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        width,
-        height,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+        0, 0,
+        displayMode.w,
+        displayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
 
     if (!m_window) {

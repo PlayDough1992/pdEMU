@@ -95,6 +95,16 @@ mingw32-make
 
 The executable will be created at `build/pdEMU.exe`.
 
+### Making pdEMU Standalone
+
+After building, copy the required DLLs to the build directory so pdEMU can run without MSYS2 in PATH:
+
+```powershell
+.\copy_dlls.ps1
+```
+
+This copies SDL2.dll, SDL2_image.dll, and MinGW runtime DLLs to the build folder. After this, you can run `.\build\pdEMU.exe` directly without the run scripts.
+
 ## Usage
 
 ### From PowerShell

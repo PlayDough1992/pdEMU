@@ -27,7 +27,10 @@ InputHandler::InputHandler()
     , m_analogRightX(0)
     , m_analogRightY(0)
     , m_analogL2(0) 
-    , m_analogR2(0) 
+    , m_analogR2(0)
+    , m_pointerX(0)
+    , m_pointerY(0)
+    , m_pointerPressed(false)
 {
     // Initialize all button states to false
     for (int i = 0; i < 16; ++i) {
@@ -255,6 +258,27 @@ void InputHandler::handleEvent(const SDL_Event& event) {
                 std::cout << "Game controller disconnected" << std::endl;
             }
             break;
+            
+        case SDL_MOUSEBUTTONDOWN:
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                m_pointerPressed = true;
+                // Update pointer position when clicked
+                m_pointerX = event.button.x;
+                m_pointerY = event.button.y;
+            }
+            break;
+            
+        case SDL_MOUSEBUTTONUP:
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                m_pointerPressed = false;
+            }
+            break;
+            
+        case SDL_MOUSEMOTION:
+            // Store raw mouse coordinates - will be converted to libretro coordinates in getInputState
+            m_pointerX = event.motion.x;
+            m_pointerY = event.motion.y;
+            break;
     }
     
     // Check for quit event
@@ -380,6 +404,43 @@ int16_t InputHandler::getInputState(unsigned port, unsigned device, unsigned ind
                 // R2 axis (0 to 32767)
                 return m_analogR2; 
             }
+        }
+    }
+    
+    // Handle pointer/touchscreen input (RETRO_DEVICE_POINTER)
+    if (device == RETRO_DEVICE_POINTER) {
+        if (id == RETRO_DEVICE_ID_POINTER_X) {
+            // Convert screen coordinates to libretro pointer coordinates (-32767 to 32767)
+            // Need to get window size to normalize
+            extern SDL_Window* g_gameWindow;
+            if (g_gameWindow) {
+                int windowWidth, windowHeight;
+                SDL_GetWindowSize(g_gameWindow, &windowWidth, &windowHeight);
+                // Normalize to -32767 to 32767 range
+                int16_t result = (int16_t)(((m_pointerX * 65535) / windowWidth) - 32768);
+                static int logCount = 0;
+                if (m_pointerPressed && logCount++ % 60 == 0) {
+                    std::cout << "[POINTER] X: raw=" << m_pointerX << " window=" << windowWidth 
+                              << " result=" << result << std::endl;
+                }
+                return result;
+            }
+            return 0;
+        } else if (id == RETRO_DEVICE_ID_POINTER_Y) {
+            extern SDL_Window* g_gameWindow;
+            if (g_gameWindow) {
+                int windowWidth, windowHeight;
+                SDL_GetWindowSize(g_gameWindow, &windowWidth, &windowHeight);
+                int16_t result = (int16_t)(((m_pointerY * 65535) / windowHeight) - 32768);
+                return result;
+            }
+            return 0;
+        } else if (id == RETRO_DEVICE_ID_POINTER_PRESSED) {
+            static int logCount = 0;
+            if (m_pointerPressed && logCount++ % 60 == 0) {
+                std::cout << "[POINTER] Pressed at (" << m_pointerX << ", " << m_pointerY << ")" << std::endl;
+            }
+            return m_pointerPressed ? 1 : 0;
         }
     }
     

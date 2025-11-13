@@ -77,38 +77,51 @@ extern "C" {
             int windowWidth, windowHeight;
             SDL_GetWindowSize(g_gameWindow, &windowWidth, &windowHeight);
             
-            // Calculate aspect ratio
-            float gameAspect = (float)g_gameWidth / (float)g_gameHeight;
-            float windowAspect = (float)windowWidth / (float)windowHeight;
+            // IMPORTANT: Use the ACTUAL game aspect ratio (4:3 for N64), not what the core reports
+            // The core may report 1920x1440 but that's just the render resolution
+            // The actual game content is 640x480 (4:3 aspect ratio)
+            const float GAME_ASPECT_RATIO = 4.0f / 3.0f;  // N64 native aspect ratio
             
-            int viewportX = 0, viewportY = 0;
-            int viewportWidth = windowWidth;
-            int viewportHeight = windowHeight;
+            // Calculate scale to fit game into window while maintaining aspect ratio
+            float scaleX = (float)windowWidth / ((float)windowHeight * GAME_ASPECT_RATIO);
+            float scaleY = 1.0f;
             
-            // Letterbox/pillarbox to maintain aspect ratio
-            if (windowAspect > gameAspect) {
-                // Window is wider - add pillarboxes (black bars on sides)
-                viewportWidth = (int)(windowHeight * gameAspect);
-                viewportX = (windowWidth - viewportWidth) / 2;
+            int viewportWidth, viewportHeight;
+            if (scaleX >= 1.0f) {
+                // Window is wider than 4:3 - pillarbox (black bars on sides)
+                viewportHeight = windowHeight;
+                viewportWidth = (int)(windowHeight * GAME_ASPECT_RATIO + 0.5f);
             } else {
-                // Window is taller - add letterboxes (black bars on top/bottom)
-                viewportHeight = (int)(windowWidth / gameAspect);
-                viewportY = (windowHeight - viewportHeight) / 2;
+                // Window is taller than 4:3 - letterbox (black bars top/bottom)
+                viewportWidth = windowWidth;
+                viewportHeight = (int)(windowWidth / GAME_ASPECT_RATIO + 0.5f);
+            }
+
+            int viewportX = (windowWidth - viewportWidth) / 2;
+            int viewportY = (windowHeight - viewportHeight) / 2;
+            
+            // Debug logging - print once per second
+            static int debugFrameCount = 0;
+            if (debugFrameCount++ % 60 == 0) {
+                std::cout << "[VIEWPORT] Window: " << windowWidth << "x" << windowHeight
+                         << " | VP: " << viewportX << "," << viewportY << " " 
+                         << viewportWidth << "x" << viewportHeight 
+                         << " | Aspect: " << GAME_ASPECT_RATIO << std::endl;
             }
             
-            // Clear the framebuffer before the core renders
-            // This must happen BEFORE setting the game viewport
+            // Clear the entire window to black first (for pillarbox/letterbox bars)
+            glViewport(0, 0, windowWidth, windowHeight);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             
             // Set viewport for the game to render into
             glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
             
-            // CRITICAL: Set up orthographic projection to scale game coordinates to viewport
-            // The core renders at game resolution (640x480), but we want it to fill the viewport
+            // Set up orthographic projection to scale game content to fill viewport
+            // The core renders at native resolution, but we want it scaled to viewport
             glMatrixMode(GL_PROJECTION);
             glLoadIdentity();
-            // Map 0,0 to game width,height to fill the viewport
+            // Map game coordinates (0,0 to width,height) to fill the entire viewport
             glOrtho(0, g_gameWidth, g_gameHeight, 0, -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glLoadIdentity();
@@ -180,6 +193,14 @@ bool LibretroCore::loadCore(const std::string& corePath) {
     // Set global instance for callbacks
     g_coreInstance = this;
 
+    // Set default core variables for mupen64plus resolution
+    // The core will request these via RETRO_ENVIRONMENT_GET_VARIABLE
+    // Note: Setting both to same resolution - mupen64plus will handle 4:3 centering internally
+    g_coreVariables["mupen64plus-169screensize"] = "1920x1080";  // Window resolution
+    g_coreVariables["mupen64plus-43screensize"] = "1920x1080";   // Window resolution (mupen64plus handles 4:3 aspect)
+    g_coreVariables["mupen64plus-framerate"] = "fullspeed";
+    g_coreVariables["mupen64plus-BilinearMode"] = "standard";
+
     // Set environment callback
     m_retro_set_environment(environmentCallback);
 
@@ -249,27 +270,45 @@ bool LibretroCore::loadGame(const std::string& gamePath) {
         return false;
     }
 
-    // Read the game file
-    std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open game file: " << gamePath << std::endl;
-        return false;
-    }
+    // For large disc-based games (PS2, GameCube, etc.), don't load entire file into memory
+    // Check if core needs full data or just path
+    bool needFullData = m_systemInfo.need_fullpath == false;
+    
+    std::vector<uint8_t> gameData;
+    size_t fileSize = 0;
+    
+    if (needFullData) {
+        // Read the game file into memory (for small ROMs)
+        std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open game file: " << gamePath << std::endl;
+            return false;
+        }
 
-    size_t fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
+        fileSize = file.tellg();
+        file.seekg(0, std::ios::beg);
 
-    std::vector<uint8_t> gameData(fileSize);
-    if (!file.read(reinterpret_cast<char*>(gameData.data()), fileSize)) {
-        std::cerr << "Failed to read game file" << std::endl;
-        return false;
+        gameData.resize(fileSize);
+        if (!file.read(reinterpret_cast<char*>(gameData.data()), fileSize)) {
+            std::cerr << "Failed to read game file" << std::endl;
+            return false;
+        }
+        file.close();
+    } else {
+        // Just verify file exists (for large disc images)
+        std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open game file: " << gamePath << std::endl;
+            return false;
+        }
+        fileSize = file.tellg();
+        file.close();
     }
-    file.close();
 
     // Prepare game info
     retro_game_info gameInfo;
     gameInfo.path = gamePath.c_str();
-    gameInfo.data = gameData.data();
+    gameInfo.data = needFullData ? gameData.data() : nullptr;
     gameInfo.size = fileSize;
     gameInfo.meta = nullptr;
 
@@ -510,6 +549,7 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
         case 30: { // RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY
             const char** dir = (const char**)data;
             *dir = g_coreInstance->m_systemDir.c_str();  // Use same as system dir
+            std::cout << "Core requested assets directory: " << *dir << std::endl;
             return true;
         }
         case 15: { // RETRO_ENVIRONMENT_GET_VARIABLE
