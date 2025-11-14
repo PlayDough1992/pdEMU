@@ -93,13 +93,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Create window for ROM browser
+    // Get desktop resolution for fullscreen ROM browser
+    SDL_DisplayMode displayMode;
+    if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+
+    // Create fullscreen borderless window for ROM browser
     SDL_Window* window = SDL_CreateWindow(
         "pdEMU - Universal Emulator",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+        0, 0,
+        displayMode.w, displayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
 
     if (!window) {
@@ -434,18 +441,31 @@ int main(int argc, char* argv[]) {
         // NOTE: Keep temporary context alive until after we create the real window
         // and call context_reset() - the core may need GL during retro_load_game()
         
-        // Create proper OpenGL window with correct size, enforce minimum 640x480
-        int winWidth = avInfo.geometry.base_width * config.windowScale;
-        int winHeight = avInfo.geometry.base_height * config.windowScale;
-        if (winWidth < 640) winWidth = 640;
-        if (winHeight < 480) winHeight = 480;
+        // Get desktop resolution for fullscreen
+        SDL_DisplayMode displayMode;
+        if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+            std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+            displayMode.w = 1920;
+            displayMode.h = 1080;
+        }
+        
+        std::cout << "Desktop resolution: " << displayMode.w << "x" << displayMode.h << std::endl;
+        
+        // Create fullscreen window (fills entire screen)
+        // The viewport will handle centering 4:3 content with black bars
+        int gameWindowWidth = displayMode.w;
+        int gameWindowHeight = displayMode.h;
+        
         std::cout << "Initializing OpenGL renderer..." << std::endl;
+        std::cout << "Creating fullscreen borderless window at " << gameWindowWidth << "x" << gameWindowHeight << std::endl;
+        
+        // Create borderless fullscreen window
         gameWindow = SDL_CreateWindow(
             windowTitle.c_str(),
-            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            winWidth,
-            winHeight,
-            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+            0, 0,  // Top-left corner of screen
+            gameWindowWidth,
+            gameWindowHeight,
+            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
         );
         
         if (!gameWindow) {
@@ -794,13 +814,20 @@ int main(int argc, char* argv[]) {
     // Reset OpenGL flag
     g_useOpenGL = false;
 
-    // Recreate ROM browser window for next game
+    // Get desktop resolution for fullscreen ROM browser
+    SDL_DisplayMode displayMode;
+    if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+
+    // Recreate fullscreen borderless ROM browser window for next game
     window = SDL_CreateWindow(
         "pdEMU - Universal Emulator",
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+        0, 0,
+        displayMode.w, displayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
 
     if (!window) {
