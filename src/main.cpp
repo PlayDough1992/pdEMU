@@ -9,6 +9,7 @@
 #include "system_database.h"
 #include "core_manager.h"
 #include "splash_screen.h"
+#include "controller_profile.h"
 #include <SDL2/SDL_opengl.h>
 #include <iostream>
 #include <fstream>
@@ -29,6 +30,9 @@ static VideoRendererGL* g_videoRendererGL = nullptr;
 static AudioRenderer* g_audioRenderer = nullptr;
 static InputHandler* g_inputHandler = nullptr;
 static bool g_useOpenGL = false;
+static bool g_shouldPresent = false;  // Flag set by video_refresh when core renders a valid frame
+static bool g_shouldClear = false;    // Flag set when we should clear before next render
+static bool g_isDK64 = false;         // Flag for DK64-specific frame dupe handling
 
 // These need external linkage for libretro_core.cpp
 SDL_Window* g_gameWindow = nullptr;
@@ -38,19 +42,32 @@ unsigned g_gameHeight = 480;
 // Libretro callbacks
 void video_refresh_callback(const void* data, unsigned width, unsigned height, size_t pitch) {
     static int frameCounter = 0;
+    static int nullCounter = 0;
+    
     if (g_useOpenGL && g_videoRendererGL) {
         // For hardware rendering, check for RETRO_HW_FRAME_BUFFER_VALID (-1) or NULL
         // RETRO_HW_FRAME_BUFFER_VALID means the core rendered to the FBO
-        if (data == nullptr || data == RETRO_HW_FRAME_BUFFER_VALID) {
-            // Core has already rendered to the framebuffer, just present
-            // Nothing to do here - we'll present in the main loop
-            if (frameCounter++ % 60 == 0) {
-                std::cout << "video_refresh: HW render frame (data=" << data << ")" << std::endl;
+        if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+            // Core rendered a new frame - we should present it
+            g_shouldPresent = true;
+            frameCounter++;
+        } else if (data == nullptr) {
+            // Frame dupe/null
+            nullCounter++;
+            if (nullCounter % 60 == 0) {
+                std::cout << "NULL frames: " << nullCounter << " (DK64 mode: " << (g_isDK64 ? "yes" : "no") << ")" << std::endl;
+            }
+            
+            if (g_isDK64) {
+                g_shouldPresent = false;  // DK64: skip to avoid black flicker
+            } else {
+                g_shouldPresent = true;   // Other games: present anyway (shouldn't normally get NULLs)
             }
         } else {
             // Software fallback - shouldn't happen for hardware cores but handle it
             std::cerr << "WARNING: Hardware core provided pixel data instead of rendering to FBO!" << std::endl;
             g_videoRendererGL->updateFrame(data, width, height, pitch);
+            g_shouldPresent = true;
         }
     } else if (!g_useOpenGL && g_videoRenderer && data) {
         g_videoRenderer->render(data, width, height, pitch);
@@ -152,6 +169,26 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Initialize controller profile manager
+    ControllerProfileManager controllerManager;
+    if (!controllerManager.init()) {
+        std::cerr << "Failed to initialize controller profile manager" << std::endl;
+    }
+    
+    // Detect and log available controllers
+    auto controllers = controllerManager.getConnectedControllers();
+    std::cout << "Detected " << controllers.size() << " controller(s)" << std::endl;
+    for (const auto& ctrl : controllers) {
+        std::cout << "  - " << ctrl.name << " (Instance: " << ctrl.instanceId << ")" << std::endl;
+    }
+    
+    // Load UI navigation profile
+    if (!controllerManager.loadProfile("ui_profile")) {
+        std::cout << "No UI navigation profile found, creating default..." << std::endl;
+        controllerManager.createDefaultUIProfile();
+        controllerManager.saveProfile("ui_profile");
+    }
+
     // Get desktop resolution for fullscreen ROM browser
     SDL_DisplayMode displayMode;
     if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
@@ -216,6 +253,15 @@ int main(int argc, char* argv[]) {
                 guiManager.processEvent(&event);
             }
             
+            // Handle controller events
+            if (event.type == SDL_CONTROLLERDEVICEADDED) {
+                controllerManager.detectControllers();
+                std::cout << "Controller connected" << std::endl;
+            } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+                controllerManager.detectControllers();
+                std::cout << "Controller disconnected" << std::endl;
+            }
+            
             if (event.type == SDL_QUIT) {
                 quit = true;
             } else if (event.type == SDL_KEYDOWN) {
@@ -223,6 +269,9 @@ int main(int argc, char* argv[]) {
                     quit = true;
                 } else if (event.key.keysym.sym == SDLK_F10) {
                     showSettings = !showSettings;
+                } else if (event.key.keysym.sym == SDLK_F9) {
+                    // Open controller configuration
+                    std::cout << "Controller configuration not yet implemented" << std::endl;
                 }
             }
         }
@@ -233,7 +282,15 @@ int main(int argc, char* argv[]) {
 
         guiManager.beginFrame();
         
+        // Check if user clicked Exit button
+        if (guiManager.shouldQuit()) {
+            quit = true;
+        }
+        
         if (showSettings) {
+            // Handle controller navigation in settings
+            guiManager.handleSettingsNavigation(controllerManager, configManager.getConfig(), settingsShouldApply);
+            
             guiManager.renderSettings(configManager.getConfig(), settingsShouldApply);
             if (settingsShouldApply) {
                 configManager.save();
@@ -241,6 +298,9 @@ int main(int argc, char* argv[]) {
                 showSettings = false;
             }
         } else {
+            // Handle controller navigation
+            guiManager.handleControllerNavigation(controllerManager, romManager, selectedRomPath, shouldLaunchGame, showSettings);
+            
             guiManager.renderRomBrowser(romManager, selectedRomPath, shouldLaunchGame, showSettings);
         }
 
@@ -356,12 +416,20 @@ int main(int argc, char* argv[]) {
         std::cout << "Temporary OpenGL context created successfully" << std::endl;
     }
 
-    // Create splash screen window
+    // Get desktop resolution for fullscreen splash
+    SDL_DisplayMode splashDisplayMode;
+    if (SDL_GetCurrentDisplayMode(0, &splashDisplayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        splashDisplayMode.w = 1920;
+        splashDisplayMode.h = 1080;
+    }
+
+    // Create fullscreen borderless splash screen window
     SDL_Window* splashWindow = SDL_CreateWindow(
         "pdEMU",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN
+        0, 0,
+        splashDisplayMode.w, splashDisplayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
     );
     
     if (!splashWindow) {
@@ -458,6 +526,14 @@ int main(int argc, char* argv[]) {
     // Load the game
     std::cout << "Loading game: " << selectedRomPath << std::endl;
     std::cout.flush();
+    
+    // Check if this is DK64 (needs special frame dupe handling)
+    g_isDK64 = (selectedRomPath.find("Donkey Kong 64") != std::string::npos || 
+                selectedRomPath.find("DK64") != std::string::npos ||
+                selectedRomPath.find("dk64") != std::string::npos);
+    if (g_isDK64) {
+        std::cout << "Detected DK64 - enabling frame dupe handling" << std::endl;
+    }
     
     // Convert relative path to absolute path if needed
     std::string absoluteRomPath = selectedRomPath;
@@ -692,6 +768,16 @@ int main(int argc, char* argv[]) {
     while (!inputHandler.shouldQuit()) {
         auto currentTime = std::chrono::high_resolution_clock::now();
         
+        // Check for controller exit combo (Start + Select)
+        auto controllers = controllerManager.getConnectedControllers();
+        for (const auto& ctrl : controllers) {
+            if (controllerManager.isExitComboPressed(ctrl.instanceId)) {
+                std::cout << "\nController exit combo detected - returning to ROM browser..." << std::endl;
+                inputHandler.setQuit(true);
+                break;
+            }
+        }
+        
         // Handle events
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -790,19 +876,36 @@ int main(int argc, char* argv[]) {
             if (g_useOpenGL && firstFrame) {
                 std::cout << "About to call core.run() for first time..." << std::endl;
             }
+            
+            static int runCounter = 0;
+            
             core.run();
+            
             if (g_useOpenGL && firstFrame) {
                 std::cout << "First core.run() completed successfully" << std::endl;
                 firstFrame = false;
             }
+            
+            // Debug: Check if video_refresh was called
+            static int debugCounter = 0;
+            if (debugCounter++ % 60 == 0) {
+                std::cout << "[MAIN] core.run() #" << runCounter << std::endl;
+            }
+            runCounter++;
         }
         
         // Render based on renderer type
         if (g_useOpenGL) {
-            // For hardware-rendered cores, the core has already drawn to the framebuffer
-            // We just need to present (swap buffers)
-            // Don't call render() - that would draw over the core's rendering!
-            videoRendererGL.present();
+            // Only present when core actually rendered a frame (not on dupes/nulls)
+            if (g_shouldPresent) {
+                videoRendererGL.present();
+                g_shouldPresent = false;
+            } else if (g_isDK64) {
+                // DK64-specific: Frame dupe - still need to maintain timing, so sleep for frame duration
+                // This prevents running too fast and desyncing audio
+                std::this_thread::sleep_for(std::chrono::microseconds(16666)); // ~60fps
+            }
+            // For non-DK64 games: don't sleep on null frames, audio timing handles sync
         } else {
             // Render GUI overlay (SDL2 only)
             if (showMenu || showSettingsMenu || config.showFPS) {

@@ -71,20 +71,17 @@ extern "C" {
 
     static uintptr_t hw_get_current_framebuffer() {
         // This is called every frame by the core before it renders
-        // Set the viewport to fill the entire window with aspect ratio correction
+        // Set up viewport for proper aspect ratio
         
         if (g_gameWindow) {
             int windowWidth, windowHeight;
             SDL_GetWindowSize(g_gameWindow, &windowWidth, &windowHeight);
             
-            // IMPORTANT: Use the ACTUAL game aspect ratio (4:3 for N64), not what the core reports
-            // The core may report 1920x1440 but that's just the render resolution
-            // The actual game content is 640x480 (4:3 aspect ratio)
-            const float GAME_ASPECT_RATIO = 4.0f / 3.0f;  // N64 native aspect ratio
+            // IMPORTANT: Use the ACTUAL game aspect ratio (4:3 for N64/PS1)
+            const float GAME_ASPECT_RATIO = 4.0f / 3.0f;
             
             // Calculate scale to fit game into window while maintaining aspect ratio
             float scaleX = (float)windowWidth / ((float)windowHeight * GAME_ASPECT_RATIO);
-            float scaleY = 1.0f;
             
             int viewportWidth, viewportHeight;
             if (scaleX >= 1.0f) {
@@ -100,38 +97,20 @@ extern "C" {
             int viewportX = (windowWidth - viewportWidth) / 2;
             int viewportY = (windowHeight - viewportHeight) / 2;
             
-            // Debug logging - print once per second
-            static int debugFrameCount = 0;
-            if (debugFrameCount++ % 60 == 0) {
-                std::cout << "[VIEWPORT] Window: " << windowWidth << "x" << windowHeight
-                         << " | VP: " << viewportX << "," << viewportY << " " 
-                         << viewportWidth << "x" << viewportHeight 
-                         << " | Aspect: " << GAME_ASPECT_RATIO << std::endl;
+            static int debugCounter = 0;
+            if (debugCounter++ % 120 == 0) {
+                std::cout << "[FBO] Window: " << windowWidth << "x" << windowHeight 
+                         << " Viewport: " << viewportX << "," << viewportY << " " 
+                         << viewportWidth << "x" << viewportHeight << std::endl;
             }
             
-            // Clear the entire window to black first (for pillarbox/letterbox bars)
+            // Clear the entire window to black (for letterbox/pillarbox bars)
             glViewport(0, 0, windowWidth, windowHeight);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT);
             
             // Set viewport for the game to render into
             glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
-            
-            // Set up orthographic projection to scale game content to fill viewport
-            // The core renders at native resolution, but we want it scaled to viewport
-            glMatrixMode(GL_PROJECTION);
-            glLoadIdentity();
-            // Map game coordinates (0,0 to width,height) to fill the entire viewport
-            glOrtho(0, g_gameWidth, g_gameHeight, 0, -1, 1);
-            glMatrixMode(GL_MODELVIEW);
-            glLoadIdentity();
-            
-            static int frameCount = 0;
-            if (frameCount++ % 60 == 0) {  // Log once per second
-                std::cout << "Viewport: " << viewportX << "," << viewportY << " " 
-                         << viewportWidth << "x" << viewportHeight 
-                         << " (Window: " << windowWidth << "x" << windowHeight << ")" << std::endl;
-            }
         }
         
         // Return 0 for default framebuffer (render directly to window backbuffer)
@@ -143,6 +122,7 @@ LibretroCore::LibretroCore()
     : m_coreHandle(nullptr)
     , m_coreLoaded(false)
     , m_gameLoaded(false)
+    , m_usesHardwareRender(false)
     , m_pixelFormat(RETRO_PIXEL_FORMAT_XRGB8888)
     , m_systemDir("./BIOS")
     , m_saveDir("./SAVES")
@@ -200,6 +180,24 @@ bool LibretroCore::loadCore(const std::string& corePath) {
     g_coreVariables["mupen64plus-43screensize"] = "1920x1080";   // Window resolution (mupen64plus handles 4:3 aspect)
     g_coreVariables["mupen64plus-framerate"] = "fullspeed";
     g_coreVariables["mupen64plus-BilinearMode"] = "standard";
+    
+    // N64 video settings to fix flickering (especially DK64)
+    g_coreVariables["mupen64plus-FrameDuping"] = "false";  // Disable frame duping
+    g_coreVariables["mupen64plus-EnableFBEmulation"] = "true";  // Enable framebuffer emulation (fixes DK64 flickering)
+    g_coreVariables["mupen64plus-EnableCopyColorToRDRAM"] = "sync";  // Sync color buffer copies (more accurate)
+    g_coreVariables["mupen64plus-EnableCopyDepthToRDRAM"] = "software";  // Software depth buffer copies
+    g_coreVariables["mupen64plus-EnableCopyAuxToRDRAM"] = "false";  // Disable aux buffer copies
+    g_coreVariables["mupen64plus-EnableN64DepthCompare"] = "false";  // Disable N64 depth compare (can cause flicker)
+    g_coreVariables["mupen64plus-EnableLegacyBlending"] = "false";  // Use accurate blending
+    g_coreVariables["mupen64plus-EnableHWLighting"] = "false";  // Disable hardware lighting (can cause issues)
+    g_coreVariables["mupen64plus-CorrectTexrectCoords"] = "auto";  // Auto-correct texrect coords
+    g_coreVariables["mupen64plus-txFilterMode"] = "none";  // Disable texture filtering that might cause flicker
+    g_coreVariables["mupen64plus-ThreadedRenderer"] = "false";  // Disable threaded rendering (can cause timing issues)
+    
+    // PS1 core audio settings to reduce latency
+    g_coreVariables["pcsx_rearmed_spu_reverb"] = "disabled";  // Disable reverb for less latency
+    g_coreVariables["pcsx_rearmed_spu_interpolation"] = "simple";  // Simple interpolation
+    g_coreVariables["pcsx_rearmed_async_cd"] = "sync";  // Sync CD access
 
     // Set environment callback
     m_retro_set_environment(environmentCallback);
@@ -646,6 +644,11 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
         case 14: { // RETRO_ENVIRONMENT_SET_HW_RENDER
             // Hardware rendering requested - provide OpenGL context
             std::cout << "Core requested hardware rendering (OpenGL)" << std::endl;
+            
+            // Mark that this core uses hardware rendering
+            if (g_coreInstance) {
+                g_coreInstance->m_usesHardwareRender = true;
+            }
             
             // Use the official struct from libretro.h
             retro_hw_render_callback* hw = (retro_hw_render_callback*)data;

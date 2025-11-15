@@ -6,12 +6,25 @@
 #include <algorithm>
 #include <iostream>
 #include <cstdio>  // for rename()
+#include <cstring> // for strncpy()
 
 GuiManager::GuiManager()
     : m_initialized(false)
     , m_imguiContext(nullptr)
     , m_selectedRomIndex(-1)
     , m_showAbout(false)
+    , m_lastNavTime(0.0f)
+    , m_navRepeatDelay(0.15f)
+    , m_totalVisibleRoms(0)
+    , m_focusMode(UIFocusMode::RomList)
+    , m_buttonFocusIndex(0)
+    , m_showOnScreenKeyboard(false)
+    , m_selectedButtonIndex(0)
+    , m_shouldQuit(false)
+    , m_settingsItemIndex(0)
+    , m_settingsTotalItems(0)
+    , m_keyboardRow(0)
+    , m_keyboardCol(0)
 {
     memset(m_searchBuffer, 0, sizeof(m_searchBuffer));
 }
@@ -149,9 +162,33 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
     ImGui::Text("Select a ROM to launch");
     ImGui::Separator();
     
-    // Search filter
+    // Show controller navigation hint
+    const char* focusModeText = "";
+    switch (m_focusMode) {
+        case UIFocusMode::RomList:
+            focusModeText = "[ROM List] Use L1/R1 to switch modes";
+            break;
+        case UIFocusMode::SearchBox:
+            focusModeText = "[Search Box] Press X to open keyboard | L1/R1 to switch modes";
+            break;
+        case UIFocusMode::Buttons:
+            focusModeText = "[Buttons] Use Left/Right to select, X to activate | L1/R1 to switch modes";
+            break;
+        default:
+            break;
+    }
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", focusModeText);
+    ImGui::Separator();
+    
+    // Search filter - highlight if focused
+    if (m_focusMode == UIFocusMode::SearchBox) {
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+    }
     ImGui::SetNextItemWidth(300);
     ImGui::InputText("Search", m_searchBuffer, sizeof(m_searchBuffer));
+    if (m_focusMode == UIFocusMode::SearchBox) {
+        ImGui::PopStyleColor();
+    }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
         memset(m_searchBuffer, 0, sizeof(m_searchBuffer));
@@ -327,29 +364,78 @@ void GuiManager::renderRomBrowser(RomManager& romManager, std::string& selectedR
     // Bottom buttons
     ImGui::Separator();
     
+    int buttonIndex = 0;
+    
     if (!selectedRom.empty()) {
+        bool isSelected = (m_focusMode == UIFocusMode::Buttons && m_selectedButtonIndex == buttonIndex);
+        if (isSelected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+        }
+        
         if (ImGui::Button("Launch Game", ImVec2(120, 30))) {
             shouldLaunch = true;
         }
+        
+        if (isSelected) {
+            ImGui::PopStyleColor();
+        }
         ImGui::SameLine();
+        buttonIndex++;
+    }
+    
+    bool isRefreshSelected = (m_focusMode == UIFocusMode::Buttons && m_selectedButtonIndex == buttonIndex);
+    if (isRefreshSelected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
     }
     
     if (ImGui::Button("Refresh List", ImVec2(120, 30))) {
         romManager.scanDirectory("ROMS");
     }
+    
+    if (isRefreshSelected) {
+        ImGui::PopStyleColor();
+    }
     ImGui::SameLine();
+    buttonIndex++;
+    
+    bool isSettingsSelected = (m_focusMode == UIFocusMode::Buttons && m_selectedButtonIndex == buttonIndex);
+    if (isSettingsSelected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    }
     
     if (ImGui::Button("Settings", ImVec2(120, 30))) {
         showSettings = true;
     }
+    
+    if (isSettingsSelected) {
+        ImGui::PopStyleColor();
+    }
     ImGui::SameLine();
+    buttonIndex++;
+    
+    bool isExitSelected = (m_focusMode == UIFocusMode::Buttons && m_selectedButtonIndex == buttonIndex);
+    if (isExitSelected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    }
     
     if (ImGui::Button("Exit", ImVec2(120, 30))) {
         shouldLaunch = false;
         selectedRom = "";
+        m_shouldQuit = true;
+    }
+    
+    if (isExitSelected) {
+        ImGui::PopStyleColor();
     }
 
     ImGui::End();
+    
+    // Render on-screen keyboard if active (navigation is handled in handleControllerNavigation)
+    if (m_showOnScreenKeyboard) {
+        bool shouldClose = false;
+        bool shouldApply = false;
+        renderOnScreenKeyboard(shouldClose, shouldApply);
+    }
 }
 
 void GuiManager::renderSettings(EmulatorConfig& config, bool& shouldApply) {
@@ -359,12 +445,58 @@ void GuiManager::renderSettings(EmulatorConfig& config, bool& shouldApply) {
 
     if (ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoCollapse)) {
         
+        int itemIndex = 0;
+        
         if (ImGui::CollapsingHeader("Video Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            // Window Scale
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::SliderInt("Window Scale", &config.windowScale, 1, 6);
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
+            
+            // Internal Resolution Scale
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::SliderInt("Internal Resolution Scale", &config.internalScale, 1, 4);
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
+            
+            // VSync
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::Checkbox("VSync", &config.vsync);
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
+            
+            // Linear Filtering
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::Checkbox("Linear Filtering", &config.linearFilter);
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
+            
+            // Show FPS
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::Checkbox("Show FPS", &config.showFPS);
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
             
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Internal scale increases rendering quality");
@@ -375,7 +507,15 @@ void GuiManager::renderSettings(EmulatorConfig& config, bool& shouldApply) {
         ImGui::Spacing();
 
         if (ImGui::CollapsingHeader("Audio Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            // Volume
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.3f, 0.5f, 0.3f, 0.5f));
+            }
             ImGui::SliderFloat("Volume", &config.audioVolume, 0.0f, 1.0f, "%.2f");
+            if (m_settingsItemIndex == itemIndex) {
+                ImGui::PopStyleColor();
+            }
+            itemIndex++;
         }
 
         ImGui::Spacing();
@@ -384,6 +524,13 @@ void GuiManager::renderSettings(EmulatorConfig& config, bool& shouldApply) {
 
         if (ImGui::CollapsingHeader("Controls Info")) {
             ImGui::TextWrapped(
+                "Controller Navigation:\n"
+                "D-Pad/Stick: Navigate settings\n"
+                "Left/Right: Adjust values\n"
+                "X: Toggle checkboxes\n"
+                "Circle: Apply & Close\n"
+                "\n"
+                "Keyboard:\n"
                 "Arrow Keys: D-Pad\n"
                 "Z: A Button\n"
                 "X: B Button\n"
@@ -402,9 +549,19 @@ void GuiManager::renderSettings(EmulatorConfig& config, bool& shouldApply) {
         ImGui::Spacing();
         ImGui::Spacing();
 
+        // Apply & Close button
+        if (m_settingsItemIndex == itemIndex) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+        }
         if (ImGui::Button("Apply & Close", ImVec2(-1, 35))) {
             shouldApply = true;
         }
+        if (m_settingsItemIndex == itemIndex) {
+            ImGui::PopStyleColor();
+        }
+        itemIndex++;
+        
+        m_settingsTotalItems = itemIndex;
 
         ImGui::End();
     }
@@ -418,3 +575,490 @@ void GuiManager::renderFPSCounter(float fps) {
     ImGui::Text("FPS: %.1f", fps);
     ImGui::End();
 }
+
+void GuiManager::renderOnScreenKeyboard(bool& shouldClose, bool& shouldApply) {
+    if (!m_initialized) return;
+    
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // Center the keyboard on screen
+    float keyboardWidth = 900.0f;
+    float keyboardHeight = 500.0f;
+    ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - keyboardWidth) * 0.5f, (io.DisplaySize.y - keyboardHeight) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(keyboardWidth, keyboardHeight), ImGuiCond_Always);
+    
+    ImGui::Begin("On-Screen Keyboard", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    
+    // Display current input
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.1f, 0.1f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##search_input", const_cast<char*>(m_keyboardInput.c_str()), m_keyboardInput.capacity() + 1, ImGuiInputTextFlags_ReadOnly);
+    ImGui::PopStyleColor(2);
+    
+    ImGui::Spacing();
+    ImGui::Text("Use D-Pad/Stick to navigate, X to select, Circle to backspace");
+    ImGui::Separator();
+    ImGui::Spacing();
+    
+    // Keyboard layout grid
+    const char* keys[][13] = {
+        {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", nullptr},
+        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", nullptr},
+        {"A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'", nullptr, nullptr},
+        {"Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", nullptr, nullptr, nullptr},
+        {"SPACE", "BACKSPACE", "CLEAR", "CANCEL", "SEARCH", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}
+    };
+    
+    const int rowSizes[] = {12, 12, 11, 10, 5};
+    const int numRows = 5;
+    
+    float buttonWidth = 60.0f;
+    float buttonHeight = 55.0f;
+    float spacing = 4.0f;
+    
+    // Clamp keyboard position
+    if (m_keyboardRow < 0) m_keyboardRow = 0;
+    if (m_keyboardRow >= numRows) m_keyboardRow = numRows - 1;
+    if (m_keyboardCol < 0) m_keyboardCol = 0;
+    if (m_keyboardCol >= rowSizes[m_keyboardRow]) m_keyboardCol = rowSizes[m_keyboardRow] - 1;
+    
+    // Render keyboard grid
+    for (int row = 0; row < numRows; row++) {
+        for (int col = 0; col < rowSizes[row]; col++) {
+            if (keys[row][col] == nullptr) break;
+            
+            // Calculate button width for special keys
+            float btnWidth = buttonWidth;
+            if (strcmp(keys[row][col], "SPACE") == 0) {
+                btnWidth = buttonWidth * 3.0f;
+            } else if (strcmp(keys[row][col], "BACKSPACE") == 0 || strcmp(keys[row][col], "SEARCH") == 0) {
+                btnWidth = buttonWidth * 1.8f;
+            } else if (strcmp(keys[row][col], "CLEAR") == 0 || strcmp(keys[row][col], "CANCEL") == 0) {
+                btnWidth = buttonWidth * 1.3f;
+            }
+            
+            // Highlight selected key
+            bool isSelected = (m_keyboardRow == row && m_keyboardCol == col);
+            if (isSelected) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.8f, 0.4f, 1.0f));
+            }
+            
+            // Render button
+            ImGui::Button(keys[row][col], ImVec2(btnWidth, buttonHeight));
+            
+            if (isSelected) {
+                ImGui::PopStyleColor(3);
+            }
+            
+            // Add spacing between buttons
+            if (col < rowSizes[row] - 1 && keys[row][col + 1] != nullptr) {
+                ImGui::SameLine(0, spacing);
+            }
+        }
+    }
+    
+    ImGui::End();
+}
+
+void GuiManager::handleControllerNavigation(ControllerProfileManager& controllerManager, RomManager& romManager, std::string& selectedRom, bool& shouldLaunch, bool& showSettings) {
+    if (!m_initialized) return;
+    
+    // Get all connected controllers
+    auto controllers = controllerManager.getConnectedControllers();
+    if (controllers.empty()) return;
+    
+    // Use the first controller for navigation
+    int instanceId = controllers[0].instanceId;
+    auto navState = controllerManager.getUINavState(instanceId);
+    
+    // Get current time for input repeat
+    float currentTime = SDL_GetTicks() / 1000.0f;
+    bool canNavigate = (currentTime - m_lastNavTime) > m_navRepeatDelay;
+    
+    if (!canNavigate) return;
+    
+    // Handle on-screen keyboard navigation
+    if (m_showOnScreenKeyboard) {
+        // Keyboard layout dimensions
+        const int rowSizes[] = {12, 12, 11, 10, 5};
+        const char* keys[][13] = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", nullptr},
+            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", nullptr},
+            {"A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'", nullptr, nullptr},
+            {"Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", nullptr, nullptr, nullptr},
+            {"SPACE", "BACKSPACE", "CLEAR", "CANCEL", "SEARCH", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}
+        };
+        
+        bool navigated = false;
+        
+        // Navigate keyboard grid
+        if (navState.upPressed) {
+            if (m_keyboardRow > 0) {
+                m_keyboardRow--;
+                // Clamp column to row size
+                if (m_keyboardCol >= rowSizes[m_keyboardRow]) {
+                    m_keyboardCol = rowSizes[m_keyboardRow] - 1;
+                }
+                navigated = true;
+            }
+        } else if (navState.downPressed) {
+            if (m_keyboardRow < 4) {
+                m_keyboardRow++;
+                // Clamp column to row size
+                if (m_keyboardCol >= rowSizes[m_keyboardRow]) {
+                    m_keyboardCol = rowSizes[m_keyboardRow] - 1;
+                }
+                navigated = true;
+            }
+        } else if (navState.leftPressed) {
+            if (m_keyboardCol > 0) {
+                m_keyboardCol--;
+                navigated = true;
+            }
+        } else if (navState.rightPressed) {
+            if (m_keyboardCol < rowSizes[m_keyboardRow] - 1) {
+                m_keyboardCol++;
+                navigated = true;
+            }
+        }
+        
+        if (navigated) {
+            m_lastNavTime = currentTime;
+        }
+        
+        // Handle key selection
+        if (navState.confirmPressed) {
+            const char* selectedKey = keys[m_keyboardRow][m_keyboardCol];
+            
+            if (strcmp(selectedKey, "SPACE") == 0) {
+                m_keyboardInput += ' ';
+            } else if (strcmp(selectedKey, "BACKSPACE") == 0) {
+                if (!m_keyboardInput.empty()) {
+                    m_keyboardInput.pop_back();
+                }
+            } else if (strcmp(selectedKey, "CLEAR") == 0) {
+                m_keyboardInput.clear();
+            } else if (strcmp(selectedKey, "CANCEL") == 0) {
+                m_showOnScreenKeyboard = false;
+                m_keyboardInput.clear();
+                m_focusMode = UIFocusMode::SearchBox;
+            } else if (strcmp(selectedKey, "SEARCH") == 0) {
+                // Apply search
+                strncpy(m_searchBuffer, m_keyboardInput.c_str(), sizeof(m_searchBuffer) - 1);
+                m_searchBuffer[sizeof(m_searchBuffer) - 1] = '\0';
+                m_showOnScreenKeyboard = false;
+                m_keyboardInput.clear();
+                m_focusMode = UIFocusMode::RomList;
+            } else {
+                // Regular character key
+                m_keyboardInput += selectedKey[0];
+            }
+            
+            m_lastNavTime = currentTime;
+        } else if (navState.cancelPressed) {
+            // Circle button = backspace
+            if (!m_keyboardInput.empty()) {
+                m_keyboardInput.pop_back();
+            }
+            m_lastNavTime = currentTime;
+        }
+        
+        return;
+    }
+    
+    // Handle focus mode switching with shoulder buttons
+    if (navState.shoulderLeftPressed) {
+        // L1/LB - cycle focus mode backward
+        switch (m_focusMode) {
+            case UIFocusMode::RomList:
+                m_focusMode = UIFocusMode::Buttons;
+                break;
+            case UIFocusMode::SearchBox:
+                m_focusMode = UIFocusMode::RomList;
+                break;
+            case UIFocusMode::Buttons:
+                m_focusMode = UIFocusMode::SearchBox;
+                break;
+            default:
+                break;
+        }
+        m_lastNavTime = currentTime;
+        return;
+    } else if (navState.shoulderRightPressed) {
+        // R1/RB - cycle focus mode forward
+        switch (m_focusMode) {
+            case UIFocusMode::RomList:
+                m_focusMode = UIFocusMode::SearchBox;
+                break;
+            case UIFocusMode::SearchBox:
+                m_focusMode = UIFocusMode::Buttons;
+                break;
+            case UIFocusMode::Buttons:
+                m_focusMode = UIFocusMode::RomList;
+                break;
+            default:
+                break;
+        }
+        m_lastNavTime = currentTime;
+        return;
+    }
+    
+    // Handle navigation based on current focus mode
+    switch (m_focusMode) {
+        case UIFocusMode::SearchBox:
+            // When focused on search box, confirm opens keyboard
+            if (navState.confirmPressed) {
+                m_showOnScreenKeyboard = true;
+                m_keyboardInput = m_searchBuffer;
+                m_keyboardRow = 0;
+                m_keyboardCol = 0;
+                m_focusMode = UIFocusMode::OnScreenKeyboard;
+                m_lastNavTime = currentTime;
+            } else if (navState.cancelPressed) {
+                // Cancel clears search
+                memset(m_searchBuffer, 0, sizeof(m_searchBuffer));
+                m_lastNavTime = currentTime;
+            }
+            break;
+            
+        case UIFocusMode::RomList:
+            // Original ROM list navigation
+            {
+                // Get ROMs organized by system for counting
+                auto romsBySystem = romManager.getRomsBySystem();
+                
+                // Apply search filter to count visible ROMs
+                std::string searchStr = m_searchBuffer;
+                std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+                
+                std::vector<std::string> visibleRomPaths;
+                for (const auto& systemPair : romsBySystem) {
+                    const std::vector<RomInfo>& roms = systemPair.second;
+                    for (const auto& rom : roms) {
+                        if (searchStr.length() > 0) {
+                            std::string romName = rom.displayName;
+                            std::transform(romName.begin(), romName.end(), romName.begin(), ::tolower);
+                            if (romName.find(searchStr) == std::string::npos) {
+                                continue;
+                            }
+                        }
+                        visibleRomPaths.push_back(rom.fullPath);
+                    }
+                }
+                
+                m_totalVisibleRoms = visibleRomPaths.size();
+                if (m_totalVisibleRoms == 0) return;
+                
+                // Find current selection index
+                int currentIndex = -1;
+                if (!selectedRom.empty()) {
+                    for (size_t i = 0; i < visibleRomPaths.size(); ++i) {
+                        if (visibleRomPaths[i] == selectedRom) {
+                            currentIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                // Handle navigation
+                bool navigated = false;
+                if (navState.upPressed) {
+                    if (currentIndex > 0) {
+                        currentIndex--;
+                        navigated = true;
+                    }
+                } else if (navState.downPressed) {
+                    if (currentIndex < m_totalVisibleRoms - 1) {
+                        currentIndex++;
+                        navigated = true;
+                    } else if (currentIndex == -1 && m_totalVisibleRoms > 0) {
+                        currentIndex = 0;
+                        navigated = true;
+                    }
+                }
+                
+                if (navigated) {
+                    selectedRom = visibleRomPaths[currentIndex];
+                    m_lastNavTime = currentTime;
+                    m_selectedRomIndex = currentIndex;
+                }
+                
+                // Handle confirm (launch game)
+                if (navState.confirmPressed && !selectedRom.empty()) {
+                    shouldLaunch = true;
+                    m_lastNavTime = currentTime;
+                }
+            }
+            break;
+            
+        case UIFocusMode::Buttons:
+            // Build list of available buttons
+            m_availableButtons.clear();
+            if (!selectedRom.empty()) {
+                m_availableButtons.push_back(ButtonType::LaunchGame);
+            }
+            m_availableButtons.push_back(ButtonType::RefreshList);
+            m_availableButtons.push_back(ButtonType::Settings);
+            m_availableButtons.push_back(ButtonType::Exit);
+            
+            // Clamp selection
+            if (m_selectedButtonIndex >= (int)m_availableButtons.size()) {
+                m_selectedButtonIndex = m_availableButtons.size() - 1;
+            }
+            if (m_selectedButtonIndex < 0) {
+                m_selectedButtonIndex = 0;
+            }
+            
+            // Navigate buttons
+            if (navState.leftPressed && m_selectedButtonIndex > 0) {
+                m_selectedButtonIndex--;
+                m_lastNavTime = currentTime;
+            } else if (navState.rightPressed && m_selectedButtonIndex < (int)m_availableButtons.size() - 1) {
+                m_selectedButtonIndex++;
+                m_lastNavTime = currentTime;
+            }
+            
+            // Activate button
+            if (navState.confirmPressed && m_selectedButtonIndex >= 0 && m_selectedButtonIndex < (int)m_availableButtons.size()) {
+                ButtonType selectedButton = m_availableButtons[m_selectedButtonIndex];
+                
+                switch (selectedButton) {
+                    case ButtonType::LaunchGame:
+                        if (!selectedRom.empty()) {
+                            shouldLaunch = true;
+                        }
+                        break;
+                    case ButtonType::RefreshList:
+                        romManager.scanDirectory("ROMS");
+                        break;
+                    case ButtonType::Settings:
+                        showSettings = true;
+                        break;
+                    case ButtonType::Exit:
+                        // Signal to quit the application
+                        selectedRom = "";
+                        shouldLaunch = false;
+                        m_shouldQuit = true;
+                        break;
+                    default:
+                        break;
+                }
+                
+                m_lastNavTime = currentTime;
+            }
+            break;
+            
+        default:
+            break;
+    }
+}
+
+void GuiManager::handleSettingsNavigation(ControllerProfileManager& controllerManager, EmulatorConfig& config, bool& shouldApply) {
+    if (!m_initialized) return;
+    
+    // Get all connected controllers
+    auto controllers = controllerManager.getConnectedControllers();
+    if (controllers.empty()) return;
+    
+    // Use the first controller for navigation
+    int instanceId = controllers[0].instanceId;
+    auto navState = controllerManager.getUINavState(instanceId);
+    
+    // Get current time for input repeat
+    float currentTime = SDL_GetTicks() / 1000.0f;
+    bool canNavigate = (currentTime - m_lastNavTime) > m_navRepeatDelay;
+    
+    if (!canNavigate) return;
+    
+    // Clamp settings index
+    if (m_settingsItemIndex < 0) m_settingsItemIndex = 0;
+    if (m_settingsItemIndex >= m_settingsTotalItems) m_settingsItemIndex = m_settingsTotalItems - 1;
+    
+    // Navigate up/down
+    if (navState.upPressed && m_settingsItemIndex > 0) {
+        m_settingsItemIndex--;
+        m_lastNavTime = currentTime;
+    } else if (navState.downPressed && m_settingsItemIndex < m_settingsTotalItems - 1) {
+        m_settingsItemIndex++;
+        m_lastNavTime = currentTime;
+    }
+    
+    // Adjust values left/right
+    bool valueChanged = false;
+    
+    switch (m_settingsItemIndex) {
+        case 0: // Window Scale
+            if (navState.leftPressed && config.windowScale > 1) {
+                config.windowScale--;
+                valueChanged = true;
+            } else if (navState.rightPressed && config.windowScale < 6) {
+                config.windowScale++;
+                valueChanged = true;
+            }
+            break;
+            
+        case 1: // Internal Resolution Scale
+            if (navState.leftPressed && config.internalScale > 1) {
+                config.internalScale--;
+                valueChanged = true;
+            } else if (navState.rightPressed && config.internalScale < 4) {
+                config.internalScale++;
+                valueChanged = true;
+            }
+            break;
+            
+        case 2: // VSync
+            if (navState.confirmPressed) {
+                config.vsync = !config.vsync;
+                valueChanged = true;
+            }
+            break;
+            
+        case 3: // Linear Filtering
+            if (navState.confirmPressed) {
+                config.linearFilter = !config.linearFilter;
+                valueChanged = true;
+            }
+            break;
+            
+        case 4: // Show FPS
+            if (navState.confirmPressed) {
+                config.showFPS = !config.showFPS;
+                valueChanged = true;
+            }
+            break;
+            
+        case 5: // Volume
+            if (navState.leftPressed && config.audioVolume > 0.0f) {
+                config.audioVolume -= 0.05f;
+                if (config.audioVolume < 0.0f) config.audioVolume = 0.0f;
+                valueChanged = true;
+            } else if (navState.rightPressed && config.audioVolume < 1.0f) {
+                config.audioVolume += 0.05f;
+                if (config.audioVolume > 1.0f) config.audioVolume = 1.0f;
+                valueChanged = true;
+            }
+            break;
+            
+        case 6: // Apply & Close button
+            if (navState.confirmPressed) {
+                shouldApply = true;
+                valueChanged = true;
+            }
+            break;
+    }
+    
+    if (valueChanged) {
+        m_lastNavTime = currentTime;
+    }
+    
+    // Circle button = Apply & Close
+    if (navState.cancelPressed) {
+        shouldApply = true;
+        m_lastNavTime = currentTime;
+    }
+}
+

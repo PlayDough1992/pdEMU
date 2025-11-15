@@ -224,7 +224,8 @@ void VideoRenderer::clear() {
 
 void VideoRenderer::present() {
     if (m_initialized && m_renderer && m_texture) {
-        // Clear and render the texture
+        // Only clear and copy for software rendering
+        // Hardware rendering cores render directly to OpenGL FBO
         SDL_RenderClear(m_renderer);
         SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
         SDL_RenderPresent(m_renderer);

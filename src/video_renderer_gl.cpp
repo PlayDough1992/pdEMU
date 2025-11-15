@@ -110,13 +110,9 @@ void VideoRendererGL::updateFrame(const void* data, unsigned width, unsigned hei
 void VideoRendererGL::render() {
     if (!m_initialized) return;
     
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] glClear error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
+    // DON'T clear here - hardware-rendered cores (N64, PS1) render directly to the FBO
+    // Clearing would wipe out what the core just drew, causing flickering
+    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glBindTexture(GL_TEXTURE_2D, m_texture);
     if (m_debugMode) {
@@ -151,8 +147,14 @@ void VideoRendererGL::present() {
         }
     }
     
+    // Ensure all rendering is complete before swapping
+    glFinish();
+    
     // Swap buffers to display the current frame
     SDL_GL_SwapWindow(m_window);
+    
+    // DON'T clear the back buffer - the core will render a full frame to it
+    // Clearing can cause flickering if there's any timing mismatch
     
     if (m_debugMode) {
         GLenum err = glGetError();

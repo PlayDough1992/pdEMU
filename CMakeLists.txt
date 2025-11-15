@@ -57,8 +57,15 @@ set(SOURCES
     src/video_renderer_gl.cpp
     src/rom_config.cpp
     src/cheat_database.cpp
+    src/controller_profile.cpp
     ${IMGUI_SOURCES}
 )
+
+# Windows resource file (icon)
+if(WIN32)
+    set(RESOURCE_FILE ${CMAKE_SOURCE_DIR}/pdemu.rc)
+    list(APPEND SOURCES ${RESOURCE_FILE})
+endif()
 
 # Header files
 set(HEADERS
@@ -76,11 +83,13 @@ set(HEADERS
     include/video_renderer_gl.h
     include/rom_config.h
     include/cheat_database.h
+    include/controller_profile.h
 )
 
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/external/json
     ${SDL2_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIR}
     ${IMGUI_DIR}

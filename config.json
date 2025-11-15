@@ -10,11 +10,11 @@ linear_filter=true
 audio_volume=1
 
 # Paths
-cores_path=cores
-roms_path=ROMS
-bios_path=BIOS
-saves_path=SAVES
+cores_path=D:\Projects_other\pdEMU_Windows\build\cores
+roms_path=D:\Projects_other\pdEMU_Windows\build\ROMS
+bios_path=D:\Projects_other\pdEMU_Windows\build\BIOS
+saves_path=D:\Projects_other\pdEMU_Windows\build\SAVES
 
 # Other
 show_fps=true
-last_rom=ROMS\Mario Kart 64 (USA).z64
+last_rom=D:\Projects_other\pdEMU_Windows\build\ROMS\Donkey Kong 64 (USA).z64

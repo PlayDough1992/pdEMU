@@ -1,0 +1,44 @@
+{
+  "controllers": {
+    "0": {
+      "axes": {
+        "0": "leftx",
+        "1": "lefty",
+        "2": "rightx",
+        "3": "righty",
+        "4": "l2",
+        "5": "r2"
+      },
+      "buttons": {
+        "0": "b",
+        "1": "a",
+        "10": "r",
+        "11": "up",
+        "12": "down",
+        "13": "left",
+        "14": "right",
+        "2": "y",
+        "3": "x",
+        "4": "select",
+        "6": "start",
+        "7": "l3",
+        "8": "r3",
+        "9": "l"
+      },
+      "guid": "030057564c050000e60c000000016800",
+      "name": "DualSense Wireless Controller",
+      "uiAxisX": 0,
+      "uiAxisY": 1,
+      "uiCancel": 1,
+      "uiConfirm": 0,
+      "uiDeadzone": 0.30000001192092896,
+      "uiDown": 12,
+      "uiLeft": 13,
+      "uiMenu": 6,
+      "uiRight": 14,
+      "uiUp": 11
+    }
+  },
+  "coreName": "ui",
+  "profileName": "UI Navigation"
+}

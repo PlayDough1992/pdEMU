@@ -3,6 +3,7 @@
 
 #include "config_manager.h"
 #include "rom_manager.h"
+#include "controller_profile.h"
 #include <SDL2/SDL.h>
 #include <string>
 
@@ -23,6 +24,14 @@ public:
     void renderSettings(EmulatorConfig& config, bool& shouldApply);
     void renderFPSCounter(float fps);
 
+    // Controller navigation
+    void handleControllerNavigation(ControllerProfileManager& controllerManager, RomManager& romManager, std::string& selectedRom, bool& shouldLaunch, bool& showSettings);
+    void handleSettingsNavigation(ControllerProfileManager& controllerManager, EmulatorConfig& config, bool& shouldApply);
+    
+    // Check if user wants to quit
+    bool shouldQuit() const { return m_shouldQuit; }
+    void setShouldQuit(bool quit) { m_shouldQuit = quit; }
+
     bool wantsCaptureMouse() const;
     bool wantsCaptureKeyboard() const;
 
@@ -42,6 +51,51 @@ private:
     int m_selectedRomIndex;
     bool m_showAbout;
     char m_searchBuffer[256];
+    
+    // Controller navigation state
+    float m_lastNavTime;
+    float m_navRepeatDelay;
+    int m_totalVisibleRoms;
+    
+    // UI focus management
+    enum class UIFocusMode {
+        RomList,
+        SearchBox,
+        Buttons,
+        OnScreenKeyboard
+    };
+    
+    UIFocusMode m_focusMode;
+    int m_buttonFocusIndex;
+    bool m_showOnScreenKeyboard;
+    std::string m_keyboardInput;
+    
+    // Button navigation
+    enum class ButtonType {
+        LaunchGame,
+        RefreshList,
+        Settings,
+        Exit,
+        ChangeSystem,
+        DebugCheckbox
+    };
+    
+    std::vector<ButtonType> m_availableButtons;
+    int m_selectedButtonIndex;
+    
+    // Quit flag
+    bool m_shouldQuit;
+    
+    // Settings navigation
+    int m_settingsItemIndex;
+    int m_settingsTotalItems;
+    
+    // On-screen keyboard navigation
+    int m_keyboardRow;
+    int m_keyboardCol;
+    
+    // On-screen keyboard
+    void renderOnScreenKeyboard(bool& shouldClose, bool& shouldApply);
 
     // Dolphin backend selection (0 = OpenGL, 1 = Vulkan)
     int m_dolphinBackend = 0;
