@@ -199,7 +199,7 @@ void SystemDatabase::initialize() {
     addSystem({
         "psx",
         "Sony PlayStation",
-        {".cue", ".toc", ".m3u", ".ccd", ".exe", ".pbp", ".chd"},
+        {".cue", ".toc", ".m3u", ".ccd", ".exe", ".pbp", ".chd", ".bin"},
         {"beetle_psx_hw_libretro" CORE_EXT, "beetle_psx_libretro" CORE_EXT, "pcsx_rearmed_libretro" CORE_EXT},
         "Sony",
         1994,
@@ -359,17 +359,14 @@ const SystemInfo* SystemDatabase::getSystemByMarker(const std::string& filename)
     for (const auto& pair : m_systems) {
         const SystemInfo& system = pair.second;
         if (!system.marker.empty()) {
-            // Look for marker before the first period
-            size_t dotPos = filename.find('.');
-            if (dotPos != std::string::npos) {
-                std::string nameBeforeExt = filename.substr(0, dotPos);
-                // Check if marker is at the end of the base filename
-                if (nameBeforeExt.length() >= system.marker.length()) {
-                    size_t markerPos = nameBeforeExt.length() - system.marker.length();
-                    if (nameBeforeExt.substr(markerPos) == system.marker) {
-                        return &system;
-                    }
-                }
+            // Look for marker anywhere in the filename (case-insensitive)
+            std::string filenameLower = filename;
+            std::string markerLower = system.marker;
+            std::transform(filenameLower.begin(), filenameLower.end(), filenameLower.begin(), ::toupper);
+            std::transform(markerLower.begin(), markerLower.end(), markerLower.begin(), ::toupper);
+            
+            if (filenameLower.find(markerLower) != std::string::npos) {
+                return &system;
             }
         }
     }

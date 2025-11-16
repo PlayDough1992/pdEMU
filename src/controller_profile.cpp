@@ -32,6 +32,14 @@ bool ControllerProfileManager::init() {
         }
     }
     
+    // Load custom game controller mappings
+    int mappingsLoaded = SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+    if (mappingsLoaded > 0) {
+        std::cout << "Loaded " << mappingsLoaded << " game controller mapping(s) from gamecontrollerdb.txt" << std::endl;
+    } else if (mappingsLoaded < 0) {
+        std::cout << "Note: Could not load gamecontrollerdb.txt: " << SDL_GetError() << std::endl;
+    }
+    
     // Detect connected controllers
     detectControllers();
     
@@ -60,7 +68,9 @@ void ControllerProfileManager::detectControllers() {
     std::cout << "Detecting controllers: " << numJoysticks << " joystick(s) found" << std::endl;
     
     for (int i = 0; i < numJoysticks; ++i) {
+        std::cout << "  Checking joystick " << i << "..." << std::endl;
         if (SDL_IsGameController(i)) {
+            std::cout << "    Is a game controller" << std::endl;
             SDL_GameController* controller = SDL_GameControllerOpen(i);
             if (controller) {
                 ControllerMapping mapping;
@@ -71,14 +81,20 @@ void ControllerProfileManager::detectControllers() {
                 
                 m_controllers[mapping.instanceId] = mapping;
                 
-                std::cout << "Controller " << i << ": " << mapping.name 
-                         << " (Instance ID: " << mapping.instanceId << ")" << std::endl;
+                std::cout << "    Controller " << i << ": " << mapping.name 
+                         << " (Instance ID: " << mapping.instanceId << ", GUID: " << mapping.guid << ")" << std::endl;
                 
                 // Don't close - keep it open for the session
                 // SDL_GameControllerClose(controller);
+            } else {
+                std::cout << "    Failed to open controller" << std::endl;
             }
+        } else {
+            std::cout << "    Not a game controller (joystick only)" << std::endl;
         }
     }
+    
+    std::cout << "detectControllers complete: " << m_controllers.size() << " controller(s) in m_controllers" << std::endl;
 }
 
 std::vector<ControllerMapping> ControllerProfileManager::getConnectedControllers() {
@@ -205,10 +221,33 @@ bool ControllerProfileManager::saveUIProfile() {
 }
 
 ControllerMapping* ControllerProfileManager::getUIMapping(int instanceId) {
+    // First try direct instance ID lookup
     auto it = m_uiProfile.controllerMappings.find(instanceId);
     if (it != m_uiProfile.controllerMappings.end()) {
         return &it->second;
     }
+    
+    // If not found, try to match by GUID
+    SDL_GameController* controller = SDL_GameControllerFromInstanceID(instanceId);
+    if (controller) {
+        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(controller);
+        if (joystick) {
+            SDL_JoystickGUID guid = SDL_JoystickGetGUID(joystick);
+            char guidStr[64];
+            SDL_JoystickGetGUIDString(guid, guidStr, sizeof(guidStr));
+            std::string currentGuid(guidStr);
+            
+            // Search all mappings for matching GUID
+            for (auto& [id, mapping] : m_uiProfile.controllerMappings) {
+                if (mapping.guid == currentGuid) {
+                    // Cache this mapping with the current instance ID for faster lookup next time
+                    m_uiProfile.controllerMappings[instanceId] = mapping;
+                    return &m_uiProfile.controllerMappings[instanceId];
+                }
+            }
+        }
+    }
+    
     return nullptr;
 }
 
@@ -263,6 +302,8 @@ bool ControllerProfileManager::loadProfileFromFile(const std::string& filePath, 
                 mapping.uiAxisX = value.value("uiAxisX", -1);
                 mapping.uiAxisY = value.value("uiAxisY", -1);
                 mapping.uiDeadzone = value.value("uiDeadzone", 0.3f);
+                mapping.uiUseHat = value.value("uiUseHat", false);
+                mapping.uiHat = value.value("uiHat", 0);
                 
                 profile.controllerMappings[instanceId] = mapping;
             }
@@ -316,6 +357,8 @@ bool ControllerProfileManager::saveProfileToFile(const std::string& filePath, co
             controller["uiAxisX"] = mapping.uiAxisX;
             controller["uiAxisY"] = mapping.uiAxisY;
             controller["uiDeadzone"] = mapping.uiDeadzone;
+            controller["uiUseHat"] = mapping.uiUseHat;
+            controller["uiHat"] = mapping.uiHat;
             
             controllers[std::to_string(instanceId)] = controller;
         }
@@ -396,16 +439,51 @@ bool ControllerProfileManager::handleControllerAxis(int instanceId, int axis, fl
     return false;
 }
 
+int ControllerProfileManager::getActiveController() {
+    std::cout << "getActiveController: m_controllers.size() = " << m_controllers.size() << std::endl;
+    
+    // Check all connected controllers and return the first one with any input
+    for (const auto& [instanceId, mapping] : m_controllers) {
+        UINavState state = getUINavState(instanceId);
+        
+        // Check if any button or direction is pressed
+        if (state.upPressed || state.downPressed || state.leftPressed || state.rightPressed ||
+            state.confirmPressed || state.cancelPressed || state.menuPressed ||
+            state.shoulderLeftPressed || state.shoulderRightPressed) {
+            std::cout << "Active controller found: Instance ID " << instanceId 
+                     << " (" << mapping.name << ")" << std::endl;
+            return instanceId;
+        }
+    }
+    
+    // If no controller has input, return the first one (or -1 if none)
+    if (!m_controllers.empty()) {
+        int firstId = m_controllers.begin()->first;
+        std::cout << "No input detected, using first controller: Instance ID " << firstId 
+                 << " (" << m_controllers.begin()->second.name << ")" << std::endl;
+        return firstId;
+    }
+    
+    std::cout << "No controllers connected!" << std::endl;
+    return -1;
+}
+
 ControllerProfileManager::UINavState ControllerProfileManager::getUINavState(int instanceId) {
     UINavState state;
     
     auto* uiMapping = getUIMapping(instanceId);
     if (!uiMapping) {
+        std::cout << "No UI mapping found for instance ID " << instanceId << std::endl;
         return state;
     }
     
+    std::cout << "UI mapping found for instance ID " << instanceId 
+             << " (GUID: " << uiMapping->guid << ", Name: " << uiMapping->name 
+             << ", UseHAT: " << (uiMapping->uiUseHat ? "true" : "false") << ")" << std::endl;
+    
     SDL_GameController* controller = SDL_GameControllerFromInstanceID(instanceId);
     if (!controller) {
+        std::cout << "Failed to get SDL_GameController for instance ID " << instanceId << std::endl;
         return state;
     }
     
@@ -451,6 +529,26 @@ ControllerProfileManager::UINavState ControllerProfileManager::getUINavState(int
             state.upPressed = true;
         } else if (axisValue > uiMapping->uiDeadzone) {
             state.downPressed = true;
+        }
+    }
+    
+    // Check HAT-based navigation (D-pad via HAT)
+    if (uiMapping->uiUseHat) {
+        SDL_Joystick* joy = SDL_GameControllerGetJoystick(controller);
+        if (joy && uiMapping->uiHat < SDL_JoystickNumHats(joy)) {
+            Uint8 hatValue = SDL_JoystickGetHat(joy, uiMapping->uiHat);
+            if (hatValue & SDL_HAT_UP) {
+                state.upPressed = true;
+            }
+            if (hatValue & SDL_HAT_DOWN) {
+                state.downPressed = true;
+            }
+            if (hatValue & SDL_HAT_LEFT) {
+                state.leftPressed = true;
+            }
+            if (hatValue & SDL_HAT_RIGHT) {
+                state.rightPressed = true;
+            }
         }
     }
     

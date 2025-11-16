@@ -59,6 +59,24 @@ InputHandler::~InputHandler() {
     }
 }
 
+void InputHandler::setActiveController(int instanceId) {
+    // Close existing controller if any
+    if (m_controller) {
+        SDL_GameControllerClose(m_controller);
+        m_controller = nullptr;
+    }
+    
+    // Open the controller by instance ID
+    SDL_GameController* newController = SDL_GameControllerFromInstanceID(instanceId);
+    if (newController) {
+        m_controller = newController;
+        std::cout << "InputHandler: Set active controller to instance ID " << instanceId 
+                 << " (" << SDL_GameControllerName(m_controller) << ")" << std::endl;
+    } else {
+        std::cerr << "InputHandler: Failed to get controller for instance ID " << instanceId << std::endl;
+    }
+}
+
 void InputHandler::setControlScheme(ControlScheme scheme) {
     m_currentScheme = scheme;
     initKeyMappings();

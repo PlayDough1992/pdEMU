@@ -666,12 +666,10 @@ void GuiManager::renderOnScreenKeyboard(bool& shouldClose, bool& shouldApply) {
 void GuiManager::handleControllerNavigation(ControllerProfileManager& controllerManager, RomManager& romManager, std::string& selectedRom, bool& shouldLaunch, bool& showSettings) {
     if (!m_initialized) return;
     
-    // Get all connected controllers
-    auto controllers = controllerManager.getConnectedControllers();
-    if (controllers.empty()) return;
+    // Get the active controller (first one with input)
+    int instanceId = controllerManager.getActiveController();
+    if (instanceId < 0) return;
     
-    // Use the first controller for navigation
-    int instanceId = controllers[0].instanceId;
     auto navState = controllerManager.getUINavState(instanceId);
     
     // Get current time for input repeat
@@ -959,12 +957,10 @@ void GuiManager::handleControllerNavigation(ControllerProfileManager& controller
 void GuiManager::handleSettingsNavigation(ControllerProfileManager& controllerManager, EmulatorConfig& config, bool& shouldApply) {
     if (!m_initialized) return;
     
-    // Get all connected controllers
-    auto controllers = controllerManager.getConnectedControllers();
-    if (controllers.empty()) return;
+    // Get the active controller (first one with input)
+    int instanceId = controllerManager.getActiveController();
+    if (instanceId < 0) return;
     
-    // Use the first controller for navigation
-    int instanceId = controllers[0].instanceId;
     auto navState = controllerManager.getUINavState(instanceId);
     
     // Get current time for input repeat

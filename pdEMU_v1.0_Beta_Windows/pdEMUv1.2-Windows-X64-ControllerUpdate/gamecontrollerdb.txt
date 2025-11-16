@@ -1,0 +1,4 @@
+# Game Controller DB mappings for pdEMU
+# Twin USB JoysticK mapping (PlayStation-style layout with Xbox button labels)
+# Physical layout matches PS5 DualSense: A=Cross(bottom), B=Circle(right), X=Square(left), Y=Triangle(top)
+0300eeb0150800000500000000000000,Twin USB JoysticK,platform:Windows,a:b2,b:b1,x:b3,y:b0,back:b8,start:b9,leftstick:b10,rightstick:b11,leftshoulder:b4,rightshoulder:b5,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:b6,righttrigger:b7,

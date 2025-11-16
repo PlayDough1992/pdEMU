@@ -130,6 +130,12 @@ int main(int argc, char* argv[]) {
     // Make paths relative to executable if they are not absolute
     auto& config = configManager.getConfig();
     
+    // Store original paths before converting to absolute
+    std::string origCoresPath = config.coresPath;
+    std::string origRomsPath = config.romsPath;
+    std::string origBiosPath = config.biosPath;
+    std::string origSavesPath = config.savesPath;
+    
     // Helper lambda to make path absolute if it's relative
     auto makeAbsolutePath = [&exeDir](std::string& path) {
         // Check if path is already absolute (starts with drive letter on Windows)
@@ -147,6 +153,9 @@ int main(int argc, char* argv[]) {
     makeAbsolutePath(config.romsPath);
     makeAbsolutePath(config.biosPath);
     makeAbsolutePath(config.savesPath);
+    
+    // Store original relative paths for saving later
+    configManager.setOriginalPaths(origCoresPath, origRomsPath, origBiosPath, origSavesPath);
     
     std::cout << "Using paths:" << std::endl;
     std::cout << "  Cores: " << config.coresPath << std::endl;
@@ -500,6 +509,15 @@ int main(int argc, char* argv[]) {
         coreName = coreName.substr(lastSlash + 1);
     }
     inputHandler.setControlScheme(coreName);
+    
+    // Set the active controller for in-game input (the one that was used in UI)
+    int activeControllerInstance = controllerManager.getActiveController();
+    if (activeControllerInstance >= 0) {
+        inputHandler.setActiveController(activeControllerInstance);
+        std::cout << "Using controller instance " << activeControllerInstance << " for in-game input" << std::endl;
+    } else {
+        std::cout << "No active controller found, using keyboard or first controller" << std::endl;
+    }
 
     // Set callbacks
     std::cout << "Setting up callbacks..." << std::endl;
@@ -637,7 +655,17 @@ int main(int argc, char* argv[]) {
         // Store window pointer globally for viewport calculation
         g_gameWindow = gameWindow;
         
+        // Calculate aspect ratio from core geometry
         float aspectRatio = (float)avInfo.geometry.base_width / avInfo.geometry.base_height;
+        
+        // Override aspect ratio for systems that should always use 4:3
+        if (system && (system->name == "ps1" || system->name == "nes" || 
+                      system->name == "snes" || system->name == "gba" ||
+                      system->name == "genesis" || system->name == "n64")) {
+            aspectRatio = 4.0f / 3.0f;
+            std::cout << "Forcing 4:3 aspect ratio for " << system->displayName << std::endl;
+        }
+        
         if (!videoRendererGL.init(gameWindow, avInfo.geometry.base_width, avInfo.geometry.base_height, aspectRatio)) {
             std::cerr << "Failed to initialize OpenGL renderer" << std::endl;
             SDL_DestroyWindow(gameWindow);

@@ -36,6 +36,9 @@ public:
     bool shouldQuit() const { return m_quit; }
     void setQuit(bool quit) { m_quit = quit; }
     
+    // Set which controller to use for input (by instance ID)
+    void setActiveController(int instanceId);
+    
     // Set control scheme based on system
     void setControlScheme(ControlScheme scheme);
     void setControlScheme(const std::string& coreName);

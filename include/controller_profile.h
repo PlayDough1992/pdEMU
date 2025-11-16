@@ -33,6 +33,10 @@ struct ControllerMapping {
     int uiAxisX = -1;
     int uiAxisY = -1;
     float uiDeadzone = 0.3f;
+    
+    // HAT for UI (if using HAT for D-pad)
+    bool uiUseHat = false;
+    int uiHat = 0;
 };
 
 // Profile for a specific game/core
@@ -94,6 +98,9 @@ public:
     };
     
     UINavState getUINavState(int instanceId);
+    
+    // Get the first controller that has any input (for determining active player)
+    int getActiveController();
     
     // Check for exit combo (Start + Select pressed simultaneously)
     bool isExitComboPressed(int instanceId);
