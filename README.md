@@ -1,42 +1,43 @@
 # pdEMU - Universal Libretro Frontend (Windows)
 
-A multi-system emulator frontend for Windows that supports all RetroArch/libretro cores. Play games from dozens of classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, and many more!
+A multi-system emulator frontend for Windows that supports 9 libretro cores. Play games from classic systems including Game Boy Advance, NES, SNES, Genesis, PlayStation, N64, and more!
 
-**Native Windows build with full OpenGL support!**
+**Native Windows build with OpenGL 3.3+ support for hardware-accelerated 3D systems!**
 
 ## Features
 
-- 🎮 **Multi-System Support** - Supports 20+ gaming systems
-- 📁 **ROM Browser** - Beautiful GUI with system categories
+- 🎮 **Multi-System Support** - Supports 9 tested gaming systems with included cores
+- 📁 **ROM Browser** - Beautiful ImGui-based GUI with automatic system detection
 - 🔄 **Auto-Core Detection** - Automatically selects the right core for your ROMs
-- 🖥️ **SDL2 Rendering** - Hardware-accelerated video with scaling options
-- 🔊 **Audio Support** - Low-latency audio playback
-- ⌨️ **Input Mapping** - Keyboard and gamepad support
-- 💾 **Config System** - Persistent settings and preferences
-- 🎨 **Internal Resolution Scaling** - Render at higher resolutions for cleaner graphics
-- ⚡ **Performance** - Fast-forward, FPS counter, and optimization options
+- 🖥️ **Hardware Rendering** - OpenGL 3.3+ support for N64 and Nintendo DS emulation
+- 🔊 **Audio Support** - Optimized low-latency audio playback (64-sample buffer)
+- 🎮 **Full Controller Support** - DualSense (PS5) and Twin USB JoysticK controllers with HAT D-pad support
+- 💾 **Config System** - Persistent settings and portable path configuration
+- 🎬 **Fullscreen Display** - Borderless fullscreen gameplay experience
+- ⚡ **Performance** - 60 FPS targeting with VSync, DK64 flicker fix
 - 🎬 **Splash Screen** - Custom branded logo display on launch
-- 🪟 **Windows Support** - Native Windows build with full OpenGL support
+- 🪟 **Windows Support** - Native Windows x64 build
+
+**Note:** Some systems require OpenGL 3.3+ for hardware acceleration. If there is sufficient interest from users with legacy hardware, a software-rendered edition can be developed to support older GPUs while maintaining 2D and select 3D system compatibility.
 
 ## Supported Systems
 
-| System | Extensions | Recommended Core |
-|--------|-----------|------------------|
+Currently includes 9 tested libretro cores with full compatibility:
+
+| System | Extensions | Included Core |
+|--------|-----------|---------------|
 | Game Boy Advance | .gba | mgba_libretro.dll |
 | Game Boy / GBC | .gb, .gbc | gambatte_libretro.dll |
 | NES | .nes | fceumm_libretro.dll |
 | SNES | .smc, .sfc | snes9x_libretro.dll |
-| Nintendo 64 | .n64, .z64 | mupen64plus_next_libretro.dll |
+| Nintendo 64 | .n64, .z64 | mupen64plus_next_libretro.dll (OpenGL 3.3+) |
 | Nintendo DS | .nds | desmume_libretro.dll |
-| GameCube | .iso, .gcm, .gcz | dolphin_libretro.dll |
-| Wii | .iso, .wbfs, .wad | dolphin_libretro.dll |
 | Genesis / Mega Drive | .md, .gen | genesis_plus_gx_libretro.dll |
-| Sega Master System | .sms | genesis_plus_gx_libretro.dll |
-| Game Gear | .gg | genesis_plus_gx_libretro.dll |
-| PlayStation | .cue, .chd | beetle_psx_hw_libretro.dll |
-| PSP | .iso, .cso | ppsspp_libretro.dll |
+| PlayStation 1 | .cue, .bin, .chd | pcsx_rearmed_libretro.dll |
 | Arcade | .zip | fbneo_libretro.dll |
-| And many more! | | |
+
+**2D Systems:** GBA, GB/GBC, NES, SNES, Genesis, PlayStation 1, Arcade  
+**3D Systems (require OpenGL 3.3+):** N64, DS
 
 ## Prerequisites
 
@@ -138,6 +139,16 @@ These directories will be automatically referenced by the emulator.
 
 ## Controls
 
+### Supported Controllers
+- **DualSense (PS5 Controller)** - Fully supported via USB with all buttons, triggers, and analog sticks
+- **Twin USB JoysticK** - Fully supported with HAT-based D-pad navigation
+- **Additional Controllers** - Use the included `controller_mapper.py` tool to map any controller
+
+Both controllers support:
+- Full UI navigation (D-pad/analog stick)
+- In-game control with automatic active controller detection
+- Whichever controller gives input first becomes player 1
+
 ### In-Game Keyboard (varies by system)
 | Key | Common Mapping |
 |-----|----------------|
@@ -158,11 +169,19 @@ These directories will be automatically referenced by the emulator.
 | F4 | Toggle Filter |
 
 ### Gamepad
-Most standard USB gamepads are supported via SDL2's GameController API. The mapping follows the standard layout:
-- Face buttons (A/B/X/Y)
-- D-Pad
-- Shoulder buttons (L/R)
-- Start/Select
+Fully supported controllers via SDL2's GameController API:
+- **DualSense (PS5)**: All buttons, D-pad (buttons), analog sticks, triggers
+- **Twin USB JoysticK**: All buttons, D-pad (HAT), analog sticks, triggers
+- **Custom Controllers**: Map any controller using `controller_mapper.py`
+
+Controller mapping follows PlayStation layout:
+- Face buttons (Cross/A, Circle/B, Square/X, Triangle/Y)
+- D-Pad (HAT or buttons depending on controller)
+- Shoulder buttons (L/R, L2/R2)
+- Analog sticks (Left/Right)
+- Start/Select buttons
+
+**Active Controller Detection**: The first controller to provide input in the UI becomes the active controller for gameplay.
 
 ## Project Structure
 
