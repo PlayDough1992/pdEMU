@@ -42,7 +42,7 @@ Before building, you need to install the following dependencies:
 ### Ubuntu/Debian
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake libsdl2-dev
+sudo apt-get install build-essential cmake libsdl2-dev libsdl2-image-dev
 ```
 
 ## BIOS Files
