@@ -77,6 +77,7 @@ public:
     
     bool isGameLoaded() const { return m_gameLoaded; }
     bool isCoreLoaded() const { return m_coreLoaded; }
+    bool usesHardwareRender() const { return m_usesHardwareRender; }
 
 private:
     // Core function pointers
@@ -107,6 +108,7 @@ private:
     // Core state
     bool m_coreLoaded;
     bool m_gameLoaded;
+    bool m_usesHardwareRender;
     retro_system_info m_systemInfo;
     retro_system_av_info m_avInfo;
     retro_pixel_format m_pixelFormat;

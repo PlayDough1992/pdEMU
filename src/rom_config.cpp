@@ -4,6 +4,10 @@
 #include <iostream>
 #include <algorithm>
 #include <sys/stat.h>
+#ifdef _WIN32
+    #include <direct.h>
+    #define mkdir(path, mode) _mkdir(path)
+#endif
 
 RomConfigManager::RomConfigManager() : m_configDir("SAVES/configs") {
     // Create config directory if it doesn't exist

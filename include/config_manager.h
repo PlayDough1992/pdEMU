@@ -40,9 +40,24 @@ public:
     EmulatorConfig& getConfig() { return m_config; }
     const EmulatorConfig& getConfig() const { return m_config; }
     
+    // Store original relative paths to preserve them when saving
+    void setOriginalPaths(const std::string& cores, const std::string& roms, 
+                         const std::string& bios, const std::string& saves) {
+        m_originalCoresPath = cores;
+        m_originalRomsPath = roms;
+        m_originalBiosPath = bios;
+        m_originalSavesPath = saves;
+    }
+    
 private:
     EmulatorConfig m_config;
     std::string m_configPath;
+    
+    // Store original relative paths
+    std::string m_originalCoresPath;
+    std::string m_originalRomsPath;
+    std::string m_originalBiosPath;
+    std::string m_originalSavesPath;
     
     void setDefaults();
 };

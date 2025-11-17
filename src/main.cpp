@@ -9,9 +9,20 @@
 #include "system_database.h"
 #include "core_manager.h"
 #include "splash_screen.h"
+#include "controller_profile.h"
+#include <SDL2/SDL_opengl.h>
 #include <iostream>
+#include <fstream>
 #include <chrono>
 #include <thread>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+// Define missing GL constants if not available
+#ifndef GL_SHADING_LANGUAGE_VERSION
+#define GL_SHADING_LANGUAGE_VERSION 0x8B8C
+#endif
 
 // Global pointers for callbacks
 static VideoRenderer* g_videoRenderer = nullptr;
@@ -19,6 +30,9 @@ static VideoRendererGL* g_videoRendererGL = nullptr;
 static AudioRenderer* g_audioRenderer = nullptr;
 static InputHandler* g_inputHandler = nullptr;
 static bool g_useOpenGL = false;
+static bool g_shouldPresent = false;  // Flag set by video_refresh when core renders a valid frame
+static bool g_shouldClear = false;    // Flag set when we should clear before next render
+static bool g_isDK64 = false;         // Flag for DK64-specific frame dupe handling
 
 // These need external linkage for libretro_core.cpp
 SDL_Window* g_gameWindow = nullptr;
@@ -28,19 +42,32 @@ unsigned g_gameHeight = 480;
 // Libretro callbacks
 void video_refresh_callback(const void* data, unsigned width, unsigned height, size_t pitch) {
     static int frameCounter = 0;
+    static int nullCounter = 0;
+    
     if (g_useOpenGL && g_videoRendererGL) {
         // For hardware rendering, check for RETRO_HW_FRAME_BUFFER_VALID (-1) or NULL
         // RETRO_HW_FRAME_BUFFER_VALID means the core rendered to the FBO
-        if (data == nullptr || data == RETRO_HW_FRAME_BUFFER_VALID) {
-            // Core has already rendered to the framebuffer, just present
-            // Nothing to do here - we'll present in the main loop
-            if (frameCounter++ % 60 == 0) {
-                std::cout << "video_refresh: HW render frame (data=" << data << ")" << std::endl;
+        if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+            // Core rendered a new frame - we should present it
+            g_shouldPresent = true;
+            frameCounter++;
+        } else if (data == nullptr) {
+            // Frame dupe/null
+            nullCounter++;
+            if (nullCounter % 60 == 0) {
+
+            }
+            
+            if (g_isDK64) {
+                g_shouldPresent = false;  // DK64: skip to avoid black flicker
+            } else {
+                g_shouldPresent = true;   // Other games: present anyway (shouldn't normally get NULLs)
             }
         } else {
             // Software fallback - shouldn't happen for hardware cores but handle it
             std::cerr << "WARNING: Hardware core provided pixel data instead of rendering to FBO!" << std::endl;
             g_videoRendererGL->updateFrame(data, width, height, pitch);
+            g_shouldPresent = true;
         }
     } else if (!g_useOpenGL && g_videoRenderer && data) {
         g_videoRenderer->render(data, width, height, pitch);
@@ -73,15 +100,69 @@ int16_t input_state_callback(unsigned port, unsigned device, unsigned index, uns
     return 0;
 }
 
+// Get the directory where the executable is located
+std::string getExecutableDirectory() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string exePath(buffer);
+    // Find the last backslash
+    size_t pos = exePath.find_last_of("\\/");
+    if (pos != std::string::npos) {
+        return exePath.substr(0, pos);
+    }
+    return ".";
+#else
+    // Linux implementation (if needed in future)
+    return ".";
+#endif
+}
+
 int main(int argc, char* argv[]) {
+    // Get the executable directory for portable paths
+    std::string exeDir = getExecutableDirectory();
+    
     // Load config
     ConfigManager configManager;
     configManager.load();
     
+    // Make paths relative to executable if they are not absolute
+    auto& config = configManager.getConfig();
+    
+    // Store original paths before converting to absolute
+    std::string origCoresPath = config.coresPath;
+    std::string origRomsPath = config.romsPath;
+    std::string origBiosPath = config.biosPath;
+    std::string origSavesPath = config.savesPath;
+    
+    // Helper lambda to make path absolute if it's relative
+    auto makeAbsolutePath = [&exeDir](std::string& path) {
+        // Check if path is already absolute (starts with drive letter on Windows)
+        if (path.length() >= 2 && path[1] == ':') {
+            return; // Already absolute
+        }
+        // Check if path starts with ./ or ../
+        if (path[0] != '/' && path[0] != '\\') {
+            // It's relative, prepend executable directory
+#ifdef _WIN32
+            path = exeDir + "\\" + path;
+#else
+            path = exeDir + "/" + path;
+#endif
+        }
+    };
+    
+    makeAbsolutePath(config.coresPath);
+    makeAbsolutePath(config.romsPath);
+    makeAbsolutePath(config.biosPath);
+    makeAbsolutePath(config.savesPath);
+    
+    // Store original relative paths for saving later
+    configManager.setOriginalPaths(origCoresPath, origRomsPath, origBiosPath, origSavesPath);
+    
     // Initialize system database
     SystemDatabase systemDb;
     systemDb.initialize();
-    std::cout << "Initialized system database with " << systemDb.getAllSystemNames().size() << " systems" << std::endl;
     
     // Initialize core manager
     CoreManager coreManager;
@@ -91,6 +172,21 @@ int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
         std::cerr << "Failed to initialize SDL: " << SDL_GetError() << std::endl;
         return 1;
+    }
+
+    // Initialize controller profile manager
+    ControllerProfileManager controllerManager;
+    if (!controllerManager.init()) {
+        std::cerr << "Failed to initialize controller profile manager" << std::endl;
+    }
+    
+    // Detect and log available controllers
+    auto controllers = controllerManager.getConnectedControllers();
+    
+    // Load UI navigation profile
+    if (!controllerManager.loadProfile("ui_profile")) {
+        controllerManager.createDefaultUIProfile();
+        controllerManager.saveProfile("ui_profile");
     }
 
     // Get desktop resolution for fullscreen ROM browser
@@ -106,7 +202,7 @@ int main(int argc, char* argv[]) {
         "pdEMU - Universal Emulator",
         0, 0,
         displayMode.w, displayMode.h,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
+        SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP
     );
 
     if (!window) {
@@ -140,8 +236,6 @@ int main(int argc, char* argv[]) {
 
     // Main application loop - keeps running until user quits
     bool quit = false;
-    
-    std::cout << "ROM Browser started. Select a ROM to play!" << std::endl;
 
     while (!quit) {
         // ROM browser loop
@@ -157,6 +251,15 @@ int main(int argc, char* argv[]) {
                 guiManager.processEvent(&event);
             }
             
+            // Handle controller events
+            if (event.type == SDL_CONTROLLERDEVICEADDED) {
+                controllerManager.detectControllers();
+
+            } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+                controllerManager.detectControllers();
+
+            }
+            
             if (event.type == SDL_QUIT) {
                 quit = true;
             } else if (event.type == SDL_KEYDOWN) {
@@ -164,6 +267,9 @@ int main(int argc, char* argv[]) {
                     quit = true;
                 } else if (event.key.keysym.sym == SDLK_F10) {
                     showSettings = !showSettings;
+                } else if (event.key.keysym.sym == SDLK_F9) {
+                    // Open controller configuration
+
                 }
             }
         }
@@ -174,7 +280,15 @@ int main(int argc, char* argv[]) {
 
         guiManager.beginFrame();
         
+        // Check if user clicked Exit button
+        if (guiManager.shouldQuit()) {
+            quit = true;
+        }
+        
         if (showSettings) {
+            // Handle controller navigation in settings
+            guiManager.handleSettingsNavigation(controllerManager, configManager.getConfig(), settingsShouldApply);
+            
             guiManager.renderSettings(configManager.getConfig(), settingsShouldApply);
             if (settingsShouldApply) {
                 configManager.save();
@@ -182,6 +296,9 @@ int main(int argc, char* argv[]) {
                 showSettings = false;
             }
         } else {
+            // Handle controller navigation
+            guiManager.handleControllerNavigation(controllerManager, romManager, selectedRomPath, shouldLaunchGame, showSettings);
+            
             guiManager.renderRomBrowser(romManager, selectedRomPath, shouldLaunchGame, showSettings);
         }
 
@@ -203,8 +320,7 @@ int main(int argc, char* argv[]) {
     SDL_DestroyWindow(window);
 
     // Now start the actual emulator
-    std::cout << "\nLaunching game: " << selectedRomPath << std::endl;
-    
+
     // Determine which core to use based on ROM filename
     // Extract just the filename from the full path
     size_t slashPos = selectedRomPath.find_last_of('/');
@@ -225,8 +341,7 @@ int main(int argc, char* argv[]) {
     std::string corePath;
     
     if (system) {
-        std::cout << "Detected system: " << system->displayName << std::endl;
-        
+
         // Some systems are known to require OpenGL (GameCube/Wii), but others
         // might request it dynamically (N64, PS2, etc.). We'll create a temporary
         // OpenGL context and let the core request hardware rendering if needed.
@@ -235,7 +350,7 @@ int main(int argc, char* argv[]) {
                       system->name == "dreamcast");
         
         if (g_useOpenGL) {
-            std::cout << "System may require OpenGL rendering" << std::endl;
+
         }
         
         corePath = coreManager.getBestCoreForSystem(system->name);
@@ -249,8 +364,7 @@ int main(int argc, char* argv[]) {
             // Return to ROM browser instead of exiting
             continue;
         }
-        
-        std::cout << "Using core: " << corePath << std::endl;
+
     } else {
         std::cerr << "Unknown file type: " << filename << std::endl;
         // Return to ROM browser instead of exiting
@@ -264,8 +378,7 @@ int main(int argc, char* argv[]) {
     SDL_GLContext tempGLContext = nullptr;
     
     if (g_useOpenGL) {
-        std::cout << "Creating temporary OpenGL context for hardware-rendered cores..." << std::endl;
-        
+
         // Set OpenGL attributes - start with COMPATIBILITY for loading
         // We'll check what the core actually needs and may recreate the context
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -294,15 +407,23 @@ int main(int argc, char* argv[]) {
         }
         
         SDL_GL_MakeCurrent(tempGLWindow, tempGLContext);
-        std::cout << "Temporary OpenGL context created successfully" << std::endl;
+
     }
 
-    // Create splash screen window
+    // Get desktop resolution for fullscreen splash
+    SDL_DisplayMode splashDisplayMode;
+    if (SDL_GetCurrentDisplayMode(0, &splashDisplayMode) != 0) {
+        std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
+        splashDisplayMode.w = 1920;
+        splashDisplayMode.h = 1080;
+    }
+
+    // Create fullscreen borderless splash screen window
     SDL_Window* splashWindow = SDL_CreateWindow(
         "pdEMU",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1024, 768,
-        SDL_WINDOW_SHOWN
+        0, 0,
+        splashDisplayMode.w, splashDisplayMode.h,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP
     );
     
     if (!splashWindow) {
@@ -354,17 +475,16 @@ int main(int argc, char* argv[]) {
         std::string backendStr = (backendIdx == 1) ? "Vulkan" : "OpenGL";
         extern std::map<std::string, std::string> g_coreVariables;
         g_coreVariables["dolphin_video_backend"] = backendStr;
-        std::cout << "Set dolphin_video_backend to: " << backendStr << std::endl;
+
     }
 
     // Load the core (corePath was determined above)
-    std::cout << "Loading core: " << corePath << std::endl;
+
     if (!core.loadCore(corePath)) {
         std::cerr << "Failed to load core" << std::endl;
         SDL_Quit();
         return 1;
     }
-    std::cout << "Core loaded successfully" << std::endl;
 
     // Set up control scheme based on core name
     std::string coreName = corePath;
@@ -373,15 +493,23 @@ int main(int argc, char* argv[]) {
         coreName = coreName.substr(lastSlash + 1);
     }
     inputHandler.setControlScheme(coreName);
+    
+    // Set the active controller for in-game input (the one that was used in UI)
+    int activeControllerInstance = controllerManager.getActiveController();
+    if (activeControllerInstance >= 0) {
+        inputHandler.setActiveController(activeControllerInstance);
+
+    } else {
+
+    }
 
     // Set callbacks
-    std::cout << "Setting up callbacks..." << std::endl;
+
     core.setVideoRefreshCallback(video_refresh_callback);
     core.setAudioSampleCallback(audio_sample_callback);
     core.setAudioSampleBatchCallback(audio_sample_batch_callback);
     core.setInputPollCallback(input_poll_callback);
     core.setInputStateCallback(input_state_callback);
-    std::cout << "Callbacks set" << std::endl;
 
     // DON'T create OpenGL context yet - let the game load first
     // The core will request hardware rendering through environment callback
@@ -392,20 +520,54 @@ int main(int argc, char* argv[]) {
         if (SDL_GL_MakeCurrent(tempGLWindow, tempGLContext) != 0) {
             std::cerr << "Failed to make temp GL context current: " << SDL_GetError() << std::endl;
         } else {
-            std::cout << "Temp GL context is current on this thread" << std::endl;
+
         }
     }
 
     // Load the game
-    std::cout << "Loading game: " << selectedRomPath << std::endl;
+
     std::cout.flush();
-    if (!core.loadGame(selectedRomPath)) {
+    
+    // Check if this is DK64 (needs special frame dupe handling)
+    g_isDK64 = (selectedRomPath.find("Donkey Kong 64") != std::string::npos || 
+                selectedRomPath.find("DK64") != std::string::npos ||
+                selectedRomPath.find("dk64") != std::string::npos);
+    if (g_isDK64) {
+
+    }
+    
+    // Convert relative path to absolute path if needed
+    std::string absoluteRomPath = selectedRomPath;
+    if (selectedRomPath.length() > 1 && selectedRomPath[1] != ':') {
+        // Relative path - make it absolute using executable directory
+#ifdef _WIN32
+        absoluteRomPath = exeDir + "\\" + selectedRomPath;
+#else
+        absoluteRomPath = exeDir + "/" + selectedRomPath;
+#endif
+    }
+    
+    // Get desktop resolution early to set core rendering resolution (especially for mupen64plus)
+    SDL_DisplayMode displayMode;
+    if (SDL_GetDesktopDisplayMode(0, &displayMode) != 0) {
+        std::cerr << "Failed to get desktop display mode: " << SDL_GetError() << std::endl;
+        displayMode.w = 1920;
+        displayMode.h = 1080;
+    }
+    
+    // Set mupen64plus resolution to match desktop resolution
+    extern std::map<std::string, std::string> g_coreVariables;
+    std::string resolutionStr = std::to_string(displayMode.w) + "x" + std::to_string(displayMode.h);
+    g_coreVariables["mupen64plus-169screensize"] = resolutionStr;
+    g_coreVariables["mupen64plus-43screensize"] = resolutionStr;
+    
+    if (!core.loadGame(absoluteRomPath)) {
         std::cerr << "Failed to load game" << std::endl;
         core.unloadCore();
         SDL_Quit();
         return 1;
     }
-    std::cout << "Game loaded successfully" << std::endl;
+
     std::cout.flush();
     
     // Load SRAM (battery save) if it exists
@@ -415,12 +577,11 @@ int main(int argc, char* argv[]) {
         sramPath = sramPath.substr(0, lastDot);
     }
     sramPath += ".srm";
-    
-    std::cout << "Loading SRAM from: " << sramPath << std::endl;
+
     core.loadSRAM(sramPath);
 
     // Get AV info and initialize renderers
-    std::cout << "Getting AV info..." << std::endl;
+
     const auto& avInfo = core.getAVInfo();
     const auto& sysInfo = core.getSystemInfo();
     auto& config = configManager.getConfig();
@@ -429,10 +590,19 @@ int main(int argc, char* argv[]) {
     g_gameWidth = avInfo.geometry.base_width;
     g_gameHeight = avInfo.geometry.base_height;
     
-    std::cout << "Core: " << sysInfo.library_name << " " << sysInfo.library_version << std::endl;
-    std::cout << "Resolution: " << avInfo.geometry.base_width << "x" << avInfo.geometry.base_height << std::endl;
-    std::cout << "FPS: " << avInfo.timing.fps << std::endl;
-
+    std::cout << "[pdEMU] " << sysInfo.library_name << " Internal Resolution: " 
+              << avInfo.geometry.base_width << "x" << avInfo.geometry.base_height << std::endl;
+    std::cout << "[pdEMU] Active ROM: " << selectedRomPath << std::endl;
+    
+    // Write to log file for debugging
+    std::ofstream logFile("pdemu_debug.log", std::ios::app);
+    logFile << "=== NEW SESSION ===" << std::endl;
+    logFile << "[INIT] Setting g_gameWidth=" << g_gameWidth << ", g_gameHeight=" << g_gameHeight << std::endl;
+    logFile << "[INIT] avInfo.geometry.base_width=" << avInfo.geometry.base_width 
+            << ", base_height=" << avInfo.geometry.base_height << std::endl;
+    logFile << "[INIT] avInfo.geometry.max_width=" << avInfo.geometry.max_width 
+            << ", max_height=" << avInfo.geometry.max_height << std::endl;
+    logFile.close();
     // Initialize video renderer (OpenGL or SDL2 based on system)
     std::string windowTitle = std::string(sysInfo.library_name) + " - pdEMU";
     SDL_Window* gameWindow = nullptr;
@@ -441,31 +611,23 @@ int main(int argc, char* argv[]) {
         // NOTE: Keep temporary context alive until after we create the real window
         // and call context_reset() - the core may need GL during retro_load_game()
         
-        // Get desktop resolution for fullscreen
-        SDL_DisplayMode displayMode;
-        if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
-            std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
-            displayMode.w = 1920;
-            displayMode.h = 1080;
-        }
+        // displayMode was already retrieved earlier when setting mupen64plus resolution
         
-        std::cout << "Desktop resolution: " << displayMode.w << "x" << displayMode.h << std::endl;
-        
+        std::cout << "[pdEMU] Desktop Resolution: " << displayMode.w << "x" << displayMode.h << std::endl;
+
         // Create fullscreen window (fills entire screen)
         // The viewport will handle centering 4:3 content with black bars
         int gameWindowWidth = displayMode.w;
         int gameWindowHeight = displayMode.h;
-        
-        std::cout << "Initializing OpenGL renderer..." << std::endl;
-        std::cout << "Creating fullscreen borderless window at " << gameWindowWidth << "x" << gameWindowHeight << std::endl;
-        
-        // Create borderless fullscreen window
+
+
+        // Create fullscreen window
         gameWindow = SDL_CreateWindow(
             windowTitle.c_str(),
             0, 0,  // Top-left corner of screen
             gameWindowWidth,
             gameWindowHeight,
-            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
+            SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP
         );
         
         if (!gameWindow) {
@@ -479,7 +641,16 @@ int main(int argc, char* argv[]) {
         // Store window pointer globally for viewport calculation
         g_gameWindow = gameWindow;
         
+        // Calculate aspect ratio from core geometry
         float aspectRatio = (float)avInfo.geometry.base_width / avInfo.geometry.base_height;
+        
+        // No aspect ratio preservation - stretch to fill window
+        int windowWidth, windowHeight;
+        SDL_GetWindowSize(gameWindow, &windowWidth, &windowHeight);
+        aspectRatio = (float)windowWidth / windowHeight;
+        
+        std::cout << "[pdEMU] Renderer Window Size: " << windowWidth << "x" << windowHeight << std::endl;
+
         if (!videoRendererGL.init(gameWindow, avInfo.geometry.base_width, avInfo.geometry.base_height, aspectRatio)) {
             std::cerr << "Failed to initialize OpenGL renderer" << std::endl;
             SDL_DestroyWindow(gameWindow);
@@ -496,38 +667,33 @@ int main(int argc, char* argv[]) {
         // Make sure the context is current before calling the callback
         videoRendererGL.makeCurrent();
         
-        // Disable vsync to prevent potential hanging
-        SDL_GL_SetSwapInterval(0);
-        std::cout << "VSync disabled (swap interval = " << SDL_GL_GetSwapInterval() << ")" << std::endl;
-        
+        // Enable vsync for smooth rendering
+        SDL_GL_SetSwapInterval(1);
+
         // Verify GL context is valid before calling context_reset
-        std::cout << "Verifying OpenGL context before context_reset..." << std::endl;
+
         std::cout.flush();
         const GLubyte* vendor = glGetString(GL_VENDOR);
         const GLubyte* renderer = glGetString(GL_RENDERER);
         const GLubyte* version = glGetString(GL_VERSION);
         const GLubyte* glsl_version = glGetString(GL_SHADING_LANGUAGE_VERSION);
-        
-        std::cout << "GL Vendor: " << (vendor ? (const char*)vendor : "NULL") << std::endl;
-        std::cout << "GL Renderer: " << (renderer ? (const char*)renderer : "NULL") << std::endl;
-        std::cout << "GL Version: " << (version ? (const char*)version : "NULL") << std::endl;
-        std::cout << "GLSL Version: " << (glsl_version ? (const char*)glsl_version : "NULL") << std::endl;
+
+
+
+
         std::cout.flush();
         
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "GL error before context_reset: 0x" << std::hex << err << std::dec << std::endl;
-        }
-        
-        std::cout << "About to call core.callContextReset()..." << std::endl;
+        // Clear any previous GL errors
+        glGetError();
+
         std::cout.flush();
         core.callContextReset();
-        std::cout << "core.callContextReset() completed" << std::endl;
+
         std::cout.flush();
         
         // NOW we can clean up the temporary context - the real one is active
         if (tempGLContext) {
-            std::cout << "Cleaning up temporary GL context..." << std::endl;
+
             SDL_GL_DeleteContext(tempGLContext);
             tempGLContext = nullptr;
         }
@@ -563,10 +729,8 @@ int main(int argc, char* argv[]) {
         videoRenderer.setInternalScale(config.internalScale);
         videoRenderer.setLinearFilter(config.linearFilter);
     }
-    
-    std::cout << "Window scale: " << config.windowScale << "x" << std::endl;
-    std::cout << "Internal scale: " << config.internalScale << "x" << std::endl;
-    std::cout << "Filter: " << (config.linearFilter ? "Linear" : "Nearest") << std::endl;
+
+
 
     // Initialize audio renderer
     if (!audioRenderer.init(avInfo.timing.sample_rate)) {
@@ -591,8 +755,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "\nGame started! Press ESC for menu\n" << std::endl;
-
     // Main emulation loop
     auto frameTime = std::chrono::microseconds(static_cast<long>(1000000.0 / avInfo.timing.fps));
     auto lastTime = std::chrono::high_resolution_clock::now();
@@ -609,6 +771,16 @@ int main(int argc, char* argv[]) {
 
     while (!inputHandler.shouldQuit()) {
         auto currentTime = std::chrono::high_resolution_clock::now();
+        
+        // Check for controller exit combo (Start + Select)
+        auto controllers = controllerManager.getConnectedControllers();
+        for (const auto& ctrl : controllers) {
+            if (controllerManager.isExitComboPressed(ctrl.instanceId)) {
+
+                inputHandler.setQuit(true);
+                break;
+            }
+        }
         
         // Handle events
         SDL_Event event;
@@ -652,7 +824,7 @@ int main(int argc, char* argv[]) {
                             } else {
                                 videoRenderer.setInternalScale(config.internalScale);
                             }
-                            std::cout << "Internal scale: " << config.internalScale << "x" << std::endl;
+
                         }
                         break;
                     case SDLK_F3:
@@ -663,7 +835,7 @@ int main(int argc, char* argv[]) {
                             } else {
                                 videoRenderer.setInternalScale(config.internalScale);
                             }
-                            std::cout << "Internal scale: " << config.internalScale << "x" << std::endl;
+
                         }
                         break;
                     case SDLK_F4:
@@ -673,7 +845,7 @@ int main(int argc, char* argv[]) {
                         } else {
                             videoRenderer.setLinearFilter(config.linearFilter);
                         }
-                        std::cout << "Filter: " << (config.linearFilter ? "Linear" : "Nearest") << std::endl;
+
                         break;
                     case SDLK_F10:
                         if (!g_useOpenGL) {
@@ -706,21 +878,38 @@ int main(int argc, char* argv[]) {
         // Run one frame (pause if menu is open)
         if (!showMenu) {
             if (g_useOpenGL && firstFrame) {
-                std::cout << "About to call core.run() for first time..." << std::endl;
+
             }
+            
+            static int runCounter = 0;
+            
             core.run();
+            
             if (g_useOpenGL && firstFrame) {
-                std::cout << "First core.run() completed successfully" << std::endl;
+
                 firstFrame = false;
             }
+            
+            // Debug: Check if video_refresh was called
+            static int debugCounter = 0;
+            if (debugCounter++ % 60 == 0) {
+
+            }
+            runCounter++;
         }
         
         // Render based on renderer type
         if (g_useOpenGL) {
-            // For hardware-rendered cores, the core has already drawn to the framebuffer
-            // We just need to present (swap buffers)
-            // Don't call render() - that would draw over the core's rendering!
-            videoRendererGL.present();
+            // Only present when core actually rendered a frame (not on dupes/nulls)
+            if (g_shouldPresent) {
+                videoRendererGL.present();
+                g_shouldPresent = false;
+            } else if (g_isDK64) {
+                // DK64-specific: Frame dupe - still need to maintain timing, so sleep for frame duration
+                // This prevents running too fast and desyncing audio
+                std::this_thread::sleep_for(std::chrono::microseconds(16666)); // ~60fps
+            }
+            // For non-DK64 games: don't sleep on null frames, audio timing handles sync
         } else {
             // Render GUI overlay (SDL2 only)
             if (showMenu || showSettingsMenu || config.showFPS) {
@@ -759,8 +948,8 @@ int main(int argc, char* argv[]) {
             fpsTime = currentTime;
         }
 
-        // Frame timing (skip if fast forward or menu open)
-        if (!fastForward && !showMenu) {
+        // Frame timing - VSync handles timing for OpenGL, manual sleep for software renderer
+        if (!g_useOpenGL && !fastForward && !showMenu) {
             auto frameElapsed = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::high_resolution_clock::now() - currentTime);
             
@@ -774,6 +963,7 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
+        // For OpenGL with VSync, SDL_GL_SwapWindow blocks until vblank, so no manual sleep needed
 
         lastTime = std::chrono::high_resolution_clock::now();
     }
@@ -783,39 +973,55 @@ int main(int argc, char* argv[]) {
     configManager.save();
 
     // Cleanup emulator
-    std::cout << "Closing emulator, returning to ROM browser..." << std::endl;
-    
+
     // Save SRAM (battery save) before unloading - reuse the sramPath from earlier
-    std::cout << "Saving SRAM to: " << sramPath << std::endl;
+
     core.saveSRAM(sramPath);
+    
+    // Unload game first
+
+    core.unloadGame();
+    
+    // Shutdown audio
+
+    audioRenderer.shutdown();
     
     if (!g_useOpenGL) {
         guiManager.shutdown();
     }
-    audioRenderer.shutdown();
     
     if (g_useOpenGL) {
-        // Call the core's context_destroy callback before cleaning up GL
-        videoRendererGL.makeCurrent();
-        core.callContextDestroy();
+        // Make context current before cleanup
+
+        if (gameWindow && SDL_GL_GetCurrentContext()) {
+            videoRendererGL.makeCurrent();
+            
+            // Call the core's context_destroy callback if it exists
+            core.callContextDestroy();
+        }
         
+        // Shutdown video renderer (this will delete the GL context)
         videoRendererGL.shutdown();
+        
+        // Destroy window after GL context is gone
         if (gameWindow) {
+
             SDL_DestroyWindow(gameWindow);
+            gameWindow = nullptr;
             g_gameWindow = nullptr;  // Clear global pointer
         }
     } else {
         videoRenderer.shutdown();
     }
     
-    core.unloadGame();
+    // Unload core last
+
     core.unloadCore();
     
     // Reset OpenGL flag
     g_useOpenGL = false;
 
-    // Get desktop resolution for fullscreen ROM browser
-    SDL_DisplayMode displayMode;
+    // Get desktop resolution for fullscreen ROM browser (reuse existing displayMode)
     if (SDL_GetCurrentDisplayMode(0, &displayMode) != 0) {
         std::cerr << "Failed to get display mode: " << SDL_GetError() << std::endl;
         displayMode.w = 1920;
@@ -857,7 +1063,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Final cleanup when user quits the application
-    std::cout << "Shutting down..." << std::endl;
+
     guiManager.shutdown();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

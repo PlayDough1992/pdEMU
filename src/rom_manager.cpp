@@ -1,7 +1,11 @@
 #include "rom_manager.h"
 #include "system_database.h"
-#include <dirent.h>
-#include <sys/stat.h>
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <dirent.h>
+    #include <sys/stat.h>
+#endif
 #include <algorithm>
 #include <iostream>
 
@@ -53,6 +57,72 @@ std::string RomManager::extractDisplayName(const std::string& filename) {
 bool RomManager::scanDirectory(const std::string& romsPath) {
     m_romList.clear();
     
+#ifdef _WIN32
+    // Windows implementation using FindFirstFile/FindNextFile
+    std::string searchPath = romsPath + "\\*.*";
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
+    
+    if (hFind == INVALID_HANDLE_VALUE) {
+        std::cerr << "Failed to open ROMs directory: " << romsPath << std::endl;
+        return false;
+    }
+    
+    do {
+        // Skip directories
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        
+        std::string filename = findData.cFileName;
+        
+        // Skip . and ..
+        if (filename[0] == '.') continue;
+        
+        if (!isValidRomExtension(filename)) continue;
+        
+        RomInfo info;
+        info.filename = filename;
+        info.fullPath = romsPath + "\\" + filename;
+        info.displayName = extractDisplayName(filename);
+        
+        // Detect system type
+        size_t dotPos = filename.find_last_of('.');
+        if (dotPos != std::string::npos && m_systemDb) {
+            // First, check for system marker in filename (e.g., "_GCM", "_PS2")
+            const SystemInfo* system = m_systemDb->getSystemByMarker(filename);
+            
+            // If no marker found, fall back to extension detection
+            if (!system) {
+                std::string ext = filename.substr(dotPos);
+                system = m_systemDb->getSystemByExtension(ext);
+            }
+            
+            if (system) {
+                info.systemName = system->name;
+                info.systemDisplayName = system->displayName;
+            } else {
+                info.systemName = "unknown";
+                info.systemDisplayName = "Unknown System";
+            }
+        } else {
+            info.systemName = "unknown";
+            info.systemDisplayName = "Unknown System";
+        }
+        
+        // Get file size (Windows)
+        LARGE_INTEGER fileSize;
+        fileSize.LowPart = findData.nFileSizeLow;
+        fileSize.HighPart = findData.nFileSizeHigh;
+        info.fileSize = fileSize.QuadPart;
+        info.isValid = true;
+        
+        m_romList.push_back(info);
+    } while (FindNextFileA(hFind, &findData));
+    
+    FindClose(hFind);
+#else
+    // Linux implementation using dirent
     DIR* dir = opendir(romsPath.c_str());
     if (!dir) {
         std::cerr << "Failed to open ROMs directory: " << romsPath << std::endl;
@@ -110,6 +180,7 @@ bool RomManager::scanDirectory(const std::string& romsPath) {
     }
     
     closedir(dir);
+#endif
     
     // Sort alphabetically
     std::sort(m_romList.begin(), m_romList.end(), 
@@ -120,7 +191,6 @@ bool RomManager::scanDirectory(const std::string& romsPath) {
             return a.displayName < b.displayName;
         });
     
-    std::cout << "Found " << m_romList.size() << " ROMs" << std::endl;
     return true;
 }
 

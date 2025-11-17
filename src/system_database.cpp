@@ -1,6 +1,13 @@
 #include "system_database.h"
 #include <algorithm>
 
+// Platform-specific core extension
+#ifdef _WIN32
+    #define CORE_EXT ".dll"
+#else
+    #define CORE_EXT ".so"
+#endif
+
 SystemDatabase::SystemDatabase() {
 }
 
@@ -24,7 +31,7 @@ void SystemDatabase::initialize() {
         "gba",
         "Game Boy Advance",
         {".gba", ".agb"},
-        {"mgba_libretro.so", "vbam_libretro.so", "gpsp_libretro.so"},
+        {"mgba_libretro" CORE_EXT, "vbam_libretro" CORE_EXT, "gpsp_libretro" CORE_EXT},
         "Nintendo",
         2001,
         false,
@@ -37,7 +44,7 @@ void SystemDatabase::initialize() {
         "gb",
         "Game Boy / Game Boy Color",
         {".gb", ".gbc", ".sgb"},
-        {"gambatte_libretro.so", "mgba_libretro.so", "sameboy_libretro.so"},
+        {"gambatte_libretro" CORE_EXT, "mgba_libretro" CORE_EXT, "sameboy_libretro" CORE_EXT},
         "Nintendo",
         1989,
         false,
@@ -50,7 +57,7 @@ void SystemDatabase::initialize() {
         "nes",
         "Nintendo Entertainment System",
         {".nes", ".fds", ".unf", ".unif"},
-        {"fceumm_libretro.so", "nestopia_libretro.so", "mesen_libretro.so"},
+        {"fceumm_libretro" CORE_EXT, "nestopia_libretro" CORE_EXT, "mesen_libretro" CORE_EXT},
         "Nintendo",
         1983,
         false,
@@ -63,7 +70,7 @@ void SystemDatabase::initialize() {
         "snes",
         "Super Nintendo Entertainment System",
         {".smc", ".sfc", ".swc", ".fig"},
-        {"snes9x_libretro.so", "bsnes_libretro.so", "bsnes_mercury_balanced_libretro.so"},
+        {"snes9x_libretro" CORE_EXT, "bsnes_libretro" CORE_EXT, "bsnes_mercury_balanced_libretro" CORE_EXT},
         "Nintendo",
         1990,
         false,
@@ -76,7 +83,7 @@ void SystemDatabase::initialize() {
         "n64",
         "Nintendo 64",
         {".n64", ".z64", ".v64"},
-        {"mupen64plus_next_libretro.so", "parallel_n64_libretro.so"},
+        {"mupen64plus_next_libretro" CORE_EXT, "parallel_n64_libretro" CORE_EXT},
         "Nintendo",
         1996,
         false,
@@ -89,7 +96,7 @@ void SystemDatabase::initialize() {
         "nds",
         "Nintendo DS",
         {".nds", ".bin"},
-        {"desmume_libretro.so", "melonds_libretro.so"},
+        {"desmume_libretro" CORE_EXT, "melonds_libretro" CORE_EXT},
         "Nintendo",
         2004,
         true,
@@ -102,7 +109,7 @@ void SystemDatabase::initialize() {
         "gamecube",
         "Nintendo GameCube",
         {".gcm", ".gcz", ".ciso", ".dol", ".elf", ".rvz", ".nkit.iso"},
-        {"dolphin_libretro.so"},
+        {"dolphin_libretro" CORE_EXT},
         "Nintendo",
         2001,
         true,  // Requires OpenGL hardware rendering
@@ -115,7 +122,7 @@ void SystemDatabase::initialize() {
         "wii",
         "Nintendo Wii",
         {".wbfs", ".wad", ".rvz", ".nkit.iso"},
-        {"dolphin_libretro.so"},
+        {"dolphin_libretro" CORE_EXT},
         "Nintendo",
         2006,
         false,
@@ -128,7 +135,7 @@ void SystemDatabase::initialize() {
         "genesis",
         "Sega Genesis / Mega Drive",
         {".md", ".gen", ".smd", ".bin", ".cue", ".iso"},
-        {"genesis_plus_gx_libretro.so", "picodrive_libretro.so"},
+        {"genesis_plus_gx_libretro" CORE_EXT, "picodrive_libretro" CORE_EXT},
         "Sega",
         1988,
         false,
@@ -141,7 +148,7 @@ void SystemDatabase::initialize() {
         "sms",
         "Sega Master System",
         {".sms"},
-        {"genesis_plus_gx_libretro.so", "picodrive_libretro.so"},
+        {"genesis_plus_gx_libretro" CORE_EXT, "picodrive_libretro" CORE_EXT},
         "Sega",
         1985,
         false,
@@ -154,7 +161,7 @@ void SystemDatabase::initialize() {
         "gamegear",
         "Sega Game Gear",
         {".gg"},
-        {"genesis_plus_gx_libretro.so", "gearsystem_libretro.so"},
+        {"genesis_plus_gx_libretro" CORE_EXT, "gearsystem_libretro" CORE_EXT},
         "Sega",
         1990,
         false,
@@ -167,7 +174,7 @@ void SystemDatabase::initialize() {
         "saturn",
         "Sega Saturn",
         {".cue", ".ccd", ".chd", ".toc", ".m3u"},
-        {"beetle_saturn_libretro.so", "yabause_libretro.so"},
+        {"beetle_saturn_libretro" CORE_EXT, "yabause_libretro" CORE_EXT},
         "Sega",
         1994,
         true,
@@ -180,7 +187,7 @@ void SystemDatabase::initialize() {
         "dreamcast",
         "Sega Dreamcast",
         {".cdi", ".chd", ".gdi"},
-        {"flycast_libretro.so", "redream_libretro.so"},
+        {"flycast_libretro" CORE_EXT, "redream_libretro" CORE_EXT},
         "Sega",
         1998,
         true,
@@ -192,8 +199,8 @@ void SystemDatabase::initialize() {
     addSystem({
         "psx",
         "Sony PlayStation",
-        {".cue", ".toc", ".m3u", ".ccd", ".exe", ".pbp", ".chd"},
-        {"beetle_psx_hw_libretro.so", "beetle_psx_libretro.so", "pcsx_rearmed_libretro.so"},
+        {".cue", ".toc", ".m3u", ".ccd", ".exe", ".pbp", ".chd", ".bin"},
+        {"beetle_psx_hw_libretro" CORE_EXT, "beetle_psx_libretro" CORE_EXT, "pcsx_rearmed_libretro" CORE_EXT},
         "Sony",
         1994,
         true,
@@ -206,7 +213,7 @@ void SystemDatabase::initialize() {
         "ps2",
         "Sony PlayStation 2",
         {".iso", ".cso", ".chd", ".bin"},
-        {"play_libretro.so"},
+        {"play_libretro" CORE_EXT},
         "Sony",
         2000,
         true,
@@ -219,7 +226,7 @@ void SystemDatabase::initialize() {
         "psp",
         "Sony PlayStation Portable",
         {".iso", ".cso", ".pbp", ".elf"},
-        {"ppsspp_libretro.so"},
+        {"ppsspp_libretro" CORE_EXT},
         "Sony",
         2004,
         false,
@@ -232,7 +239,7 @@ void SystemDatabase::initialize() {
         "arcade",
         "Arcade",
         {".zip", ".7z"},
-        {"mame_libretro.so", "fbneo_libretro.so", "fbalpha2012_libretro.so"},
+        {"mame_libretro" CORE_EXT, "fbneo_libretro" CORE_EXT, "fbalpha2012_libretro" CORE_EXT},
         "Various",
         1970,
         false,
@@ -245,7 +252,7 @@ void SystemDatabase::initialize() {
         "atari2600",
         "Atari 2600",
         {".a26", ".bin"},
-        {"stella_libretro.so"},
+        {"stella_libretro" CORE_EXT},
         "Atari",
         1977,
         false,
@@ -258,7 +265,7 @@ void SystemDatabase::initialize() {
         "atari7800",
         "Atari 7800",
         {".a78", ".bin"},
-        {"prosystem_libretro.so"},
+        {"prosystem_libretro" CORE_EXT},
         "Atari",
         1986,
         false,
@@ -271,7 +278,7 @@ void SystemDatabase::initialize() {
         "pce",
         "PC Engine / TurboGrafx-16",
         {".pce", ".sgx", ".cue", ".ccd", ".chd"},
-        {"beetle_pce_fast_libretro.so", "beetle_pce_libretro.so"},
+        {"beetle_pce_fast_libretro" CORE_EXT, "beetle_pce_libretro" CORE_EXT},
         "NEC",
         1987,
         false,
@@ -284,7 +291,7 @@ void SystemDatabase::initialize() {
         "ngp",
         "Neo Geo Pocket / Color",
         {".ngp", ".ngc"},
-        {"beetle_ngp_libretro.so"},
+        {"beetle_ngp_libretro" CORE_EXT},
         "SNK",
         1998,
         false,
@@ -297,7 +304,7 @@ void SystemDatabase::initialize() {
         "wonderswan",
         "WonderSwan / WonderSwan Color",
         {".ws", ".wsc"},
-        {"beetle_wswan_libretro.so"},
+        {"beetle_wswan_libretro" CORE_EXT},
         "Bandai",
         1999,
         false,
@@ -310,7 +317,7 @@ void SystemDatabase::initialize() {
         "dos",
         "MS-DOS",
         {".exe", ".com", ".bat", ".conf"},
-        {"dosbox_pure_libretro.so", "dosbox_core_libretro.so"},
+        {"dosbox_pure_libretro" CORE_EXT, "dosbox_core_libretro" CORE_EXT},
         "Microsoft",
         1981,
         false,
@@ -352,17 +359,14 @@ const SystemInfo* SystemDatabase::getSystemByMarker(const std::string& filename)
     for (const auto& pair : m_systems) {
         const SystemInfo& system = pair.second;
         if (!system.marker.empty()) {
-            // Look for marker before the first period
-            size_t dotPos = filename.find('.');
-            if (dotPos != std::string::npos) {
-                std::string nameBeforeExt = filename.substr(0, dotPos);
-                // Check if marker is at the end of the base filename
-                if (nameBeforeExt.length() >= system.marker.length()) {
-                    size_t markerPos = nameBeforeExt.length() - system.marker.length();
-                    if (nameBeforeExt.substr(markerPos) == system.marker) {
-                        return &system;
-                    }
-                }
+            // Look for marker anywhere in the filename (case-insensitive)
+            std::string filenameLower = filename;
+            std::string markerLower = system.marker;
+            std::transform(filenameLower.begin(), filenameLower.end(), filenameLower.begin(), ::toupper);
+            std::transform(markerLower.begin(), markerLower.end(), markerLower.begin(), ::toupper);
+            
+            if (filenameLower.find(markerLower) != std::string::npos) {
+                return &system;
             }
         }
     }

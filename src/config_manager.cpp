@@ -29,7 +29,7 @@ bool ConfigManager::load(const std::string& configPath) {
     std::ifstream file(configPath);
     
     if (!file.is_open()) {
-        std::cout << "Config file not found, using defaults" << std::endl;
+
         return false;
     }
     
@@ -66,7 +66,7 @@ bool ConfigManager::load(const std::string& configPath) {
     }
     
     file.close();
-    std::cout << "Config loaded from " << configPath << std::endl;
+
     return true;
 }
 
@@ -89,16 +89,17 @@ bool ConfigManager::save(const std::string& configPath) {
     file << "audio_volume=" << m_config.audioVolume << "\n\n";
     
     file << "# Paths\n";
-    file << "cores_path=" << m_config.coresPath << "\n";
-    file << "roms_path=" << m_config.romsPath << "\n";
-    file << "bios_path=" << m_config.biosPath << "\n";
-    file << "saves_path=" << m_config.savesPath << "\n\n";
+    // Use original relative paths if they were set, otherwise use current paths
+    file << "cores_path=" << (m_originalCoresPath.empty() ? m_config.coresPath : m_originalCoresPath) << "\n";
+    file << "roms_path=" << (m_originalRomsPath.empty() ? m_config.romsPath : m_originalRomsPath) << "\n";
+    file << "bios_path=" << (m_originalBiosPath.empty() ? m_config.biosPath : m_originalBiosPath) << "\n";
+    file << "saves_path=" << (m_originalSavesPath.empty() ? m_config.savesPath : m_originalSavesPath) << "\n\n";
     
     file << "# Other\n";
     file << "show_fps=" << (m_config.showFPS ? "true" : "false") << "\n";
     file << "last_rom=" << m_config.lastRomPath << "\n";
     
     file.close();
-    std::cout << "Config saved to " << (configPath.empty() ? m_configPath : configPath) << std::endl;
+
     return true;
 }

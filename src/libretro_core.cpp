@@ -1,7 +1,11 @@
 #include "libretro_core.h"
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
-#include <dlfcn.h>
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <dlfcn.h>
+#endif
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -43,78 +47,44 @@ extern "C" {
     }
     
     static retro_proc_address_t hw_get_proc_address(const char* sym) {
-        std::cout << "\n=== hw_get_proc_address CALLED ===" << std::endl;
-        std::cout << "Symbol: " << (sym ? sym : "NULL") << std::endl;
-        std::cout.flush();
-        std::cerr.flush();
-        
         if (!sym) {
-            std::cerr << "ERROR: hw_get_proc_address called with NULL symbol!" << std::endl;
-            std::cerr.flush();
             return nullptr;
         }
         
         retro_proc_address_t addr = (retro_proc_address_t)SDL_GL_GetProcAddress(sym);
-        if (!addr) {
-            std::cerr << "WARNING: Failed to get proc address for: " << sym << std::endl;
-            std::cerr.flush();
-        } else {
-            std::cout << "SUCCESS: Returned " << (void*)addr << " for " << sym << std::endl;
-            std::cout.flush();
-        }
         return addr;
     }
 
     static uintptr_t hw_get_current_framebuffer() {
         // This is called every frame by the core before it renders
-        // Set the viewport to fill the entire window with aspect ratio correction
+        // Set up viewport for proper aspect ratio
         
         if (g_gameWindow) {
             int windowWidth, windowHeight;
             SDL_GetWindowSize(g_gameWindow, &windowWidth, &windowHeight);
             
-            // Calculate aspect ratio
-            float gameAspect = (float)g_gameWidth / (float)g_gameHeight;
-            float windowAspect = (float)windowWidth / (float)windowHeight;
-            
-            int viewportX = 0, viewportY = 0;
+            // No aspect ratio correction - just fill the entire window
             int viewportWidth = windowWidth;
             int viewportHeight = windowHeight;
+            int viewportX = 0;
+            int viewportY = 0;
             
-            // Letterbox/pillarbox to maintain aspect ratio
-            if (windowAspect > gameAspect) {
-                // Window is wider - add pillarboxes (black bars on sides)
-                viewportWidth = (int)(windowHeight * gameAspect);
-                viewportX = (windowWidth - viewportWidth) / 2;
-            } else {
-                // Window is taller - add letterboxes (black bars on top/bottom)
-                viewportHeight = (int)(windowWidth / gameAspect);
-                viewportY = (windowHeight - viewportHeight) / 2;
+            // Print viewport info once
+            static bool viewportPrinted = false;
+            if (!viewportPrinted && g_coreInstance) {
+                std::cout << "[pdEMU] " << g_coreInstance->getSystemInfo().library_name << " Viewport Position: " 
+                         << viewportX << ", " << viewportY << ", " 
+                         << viewportWidth << ", " << viewportHeight << std::endl;
+                viewportPrinted = true;
             }
             
-            // Clear the entire window to black first (prevents flickering artifacts)
+            // Clear the entire window to black
             glViewport(0, 0, windowWidth, windowHeight);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClear(GL_COLOR_BUFFER_BIT);
             
-            // Now set the viewport for the game to render into
+            // Set viewport for the game to render into (full window)
             glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
-            
-            // CRITICAL: Set up orthographic projection to scale game coordinates to viewport
-            // The core renders at game resolution (640x480), but we want it to fill the viewport
-            glMatrixMode(GL_PROJECTION);
-            glLoadIdentity();
-            // Map 0,0 to game width,height to fill the viewport
-            glOrtho(0, g_gameWidth, g_gameHeight, 0, -1, 1);
-            glMatrixMode(GL_MODELVIEW);
-            glLoadIdentity();
-            
-            static int frameCount = 0;
-            if (frameCount++ % 60 == 0) {  // Log once per second
-                std::cout << "Viewport: " << viewportX << "," << viewportY << " " 
-                         << viewportWidth << "x" << viewportHeight 
-                         << " (Window: " << windowWidth << "x" << windowHeight << ")" << std::endl;
-            }
         }
         
         // Return 0 for default framebuffer (render directly to window backbuffer)
@@ -126,6 +96,7 @@ LibretroCore::LibretroCore()
     : m_coreHandle(nullptr)
     , m_coreLoaded(false)
     , m_gameLoaded(false)
+    , m_usesHardwareRender(false)
     , m_pixelFormat(RETRO_PIXEL_FORMAT_XRGB8888)
     , m_systemDir("./BIOS")
     , m_saveDir("./SAVES")
@@ -148,21 +119,59 @@ bool LibretroCore::loadCore(const std::string& corePath) {
     }
 
     // Load the shared library
+#ifdef _WIN32
+    m_coreHandle = LoadLibraryA(corePath.c_str());
+    if (!m_coreHandle) {
+        std::cerr << "Failed to load core: Error code " << GetLastError() << std::endl;
+        return false;
+    }
+#else
     m_coreHandle = dlopen(corePath.c_str(), RTLD_LAZY);
     if (!m_coreHandle) {
         std::cerr << "Failed to load core: " << dlerror() << std::endl;
         return false;
     }
+#endif
 
     // Load all core functions
     if (!loadCoreFunctions()) {
+#ifdef _WIN32
+        FreeLibrary((HMODULE)m_coreHandle);
+#else
         dlclose(m_coreHandle);
+#endif
         m_coreHandle = nullptr;
         return false;
     }
 
     // Set global instance for callbacks
     g_coreInstance = this;
+
+    // Set default core variables for mupen64plus resolution
+    // The core will request these via RETRO_ENVIRONMENT_GET_VARIABLE
+    // Note: Setting both to same resolution - mupen64plus will handle 4:3 centering internally
+    g_coreVariables["mupen64plus-169screensize"] = "1920x1080";  // Window resolution
+    g_coreVariables["mupen64plus-43screensize"] = "1920x1080";   // Window resolution (mupen64plus handles 4:3 aspect)
+    g_coreVariables["mupen64plus-framerate"] = "fullspeed";
+    g_coreVariables["mupen64plus-BilinearMode"] = "standard";
+    
+    // N64 video settings to fix flickering (especially DK64)
+    g_coreVariables["mupen64plus-FrameDuping"] = "false";  // Disable frame duping
+    g_coreVariables["mupen64plus-EnableFBEmulation"] = "true";  // Enable framebuffer emulation (fixes DK64 flickering)
+    g_coreVariables["mupen64plus-EnableCopyColorToRDRAM"] = "sync";  // Sync color buffer copies (more accurate)
+    g_coreVariables["mupen64plus-EnableCopyDepthToRDRAM"] = "software";  // Software depth buffer copies
+    g_coreVariables["mupen64plus-EnableCopyAuxToRDRAM"] = "false";  // Disable aux buffer copies
+    g_coreVariables["mupen64plus-EnableN64DepthCompare"] = "false";  // Disable N64 depth compare (can cause flicker)
+    g_coreVariables["mupen64plus-EnableLegacyBlending"] = "false";  // Use accurate blending
+    g_coreVariables["mupen64plus-EnableHWLighting"] = "false";  // Disable hardware lighting (can cause issues)
+    g_coreVariables["mupen64plus-CorrectTexrectCoords"] = "auto";  // Auto-correct texrect coords
+    g_coreVariables["mupen64plus-txFilterMode"] = "none";  // Disable texture filtering that might cause flicker
+    g_coreVariables["mupen64plus-ThreadedRenderer"] = "false";  // Disable threaded rendering (can cause timing issues)
+    
+    // PS1 core audio settings to reduce latency
+    g_coreVariables["pcsx_rearmed_spu_reverb"] = "disabled";  // Disable reverb for less latency
+    g_coreVariables["pcsx_rearmed_spu_interpolation"] = "simple";  // Simple interpolation
+    g_coreVariables["pcsx_rearmed_async_cd"] = "sync";  // Sync CD access
 
     // Set environment callback
     m_retro_set_environment(environmentCallback);
@@ -178,12 +187,21 @@ bool LibretroCore::loadCore(const std::string& corePath) {
 }
 
 bool LibretroCore::loadCoreFunctions() {
+#ifdef _WIN32
+    #define LOAD_SYM(name) \
+        m_##name = (name##_t)GetProcAddress((HMODULE)m_coreHandle, #name); \
+        if (!m_##name) { \
+            std::cerr << "Failed to load symbol: " #name << std::endl; \
+            return false; \
+        }
+#else
     #define LOAD_SYM(name) \
         m_##name = (name##_t)dlsym(m_coreHandle, #name); \
         if (!m_##name) { \
             std::cerr << "Failed to load symbol: " #name << std::endl; \
             return false; \
         }
+#endif
 
     LOAD_SYM(retro_init)
     LOAD_SYM(retro_deinit)
@@ -224,34 +242,52 @@ bool LibretroCore::loadGame(const std::string& gamePath) {
         return false;
     }
 
-    // Read the game file
-    std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open game file: " << gamePath << std::endl;
-        return false;
-    }
+    // For large disc-based games (PS2, GameCube, etc.), don't load entire file into memory
+    // Check if core needs full data or just path
+    bool needFullData = m_systemInfo.need_fullpath == false;
+    
+    std::vector<uint8_t> gameData;
+    size_t fileSize = 0;
+    
+    if (needFullData) {
+        // Read the game file into memory (for small ROMs)
+        std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open game file: " << gamePath << std::endl;
+            return false;
+        }
 
-    size_t fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
+        fileSize = file.tellg();
+        file.seekg(0, std::ios::beg);
 
-    std::vector<uint8_t> gameData(fileSize);
-    if (!file.read(reinterpret_cast<char*>(gameData.data()), fileSize)) {
-        std::cerr << "Failed to read game file" << std::endl;
-        return false;
+        gameData.resize(fileSize);
+        if (!file.read(reinterpret_cast<char*>(gameData.data()), fileSize)) {
+            std::cerr << "Failed to read game file" << std::endl;
+            return false;
+        }
+        file.close();
+    } else {
+        // Just verify file exists (for large disc images)
+        std::ifstream file(gamePath, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::cerr << "Failed to open game file: " << gamePath << std::endl;
+            return false;
+        }
+        fileSize = file.tellg();
+        file.close();
     }
-    file.close();
 
     // Prepare game info
     retro_game_info gameInfo;
     gameInfo.path = gamePath.c_str();
-    gameInfo.data = gameData.data();
+    gameInfo.data = needFullData ? gameData.data() : nullptr;
     gameInfo.size = fileSize;
     gameInfo.meta = nullptr;
 
     // Load the game
-    std::cout << "About to call retro_load_game()..." << std::endl;
-    std::cout << "  m_retro_load_game pointer: " << (void*)m_retro_load_game << std::endl;
-    std::cout << "  HW render context_reset: " << (void*)m_hw_context_reset << std::endl;
+
+
+
     std::cout.flush();
     
     if (!m_retro_load_game(&gameInfo)) {
@@ -282,11 +318,19 @@ void LibretroCore::unloadCore() {
             m_retro_deinit();
         }
         if (m_coreHandle) {
+#ifdef _WIN32
+            FreeLibrary((HMODULE)m_coreHandle);
+#else
             dlclose(m_coreHandle);
+#endif
             m_coreHandle = nullptr;
         }
         m_coreLoaded = false;
         g_coreInstance = nullptr;
+        
+        // Clear hardware render callbacks
+        m_hw_context_reset = nullptr;
+        m_hw_context_destroy = nullptr;
     }
 }
 
@@ -377,8 +421,7 @@ bool LibretroCore::saveSRAM(const std::string& path) {
         std::cerr << "Failed to write SRAM data to: " << path << std::endl;
         return false;
     }
-    
-    std::cout << "Saved SRAM (" << size << " bytes) to: " << path << std::endl;
+
     return true;
 }
 
@@ -420,8 +463,7 @@ bool LibretroCore::loadSRAM(const std::string& path) {
         std::cerr << "Failed to read SRAM data from: " << path << std::endl;
         return false;
     }
-    
-    std::cout << "Loaded SRAM (" << size << " bytes) from: " << path << std::endl;
+
     return true;
 }
 
@@ -465,18 +507,19 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: {
             const char** dir = (const char**)data;
             *dir = g_coreInstance->m_systemDir.c_str();
-            std::cout << "Core requested system directory: " << *dir << std::endl;
+
             return true;
         }
         case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: {
             const char** dir = (const char**)data;
             *dir = g_coreInstance->m_saveDir.c_str();
-            std::cout << "Core requested save directory: " << *dir << std::endl;
+
             return true;
         }
         case 30: { // RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY
             const char** dir = (const char**)data;
             *dir = g_coreInstance->m_systemDir.c_str();  // Use same as system dir
+
             return true;
         }
         case 15: { // RETRO_ENVIRONMENT_GET_VARIABLE
@@ -572,31 +615,31 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
         }
         case 14: { // RETRO_ENVIRONMENT_SET_HW_RENDER
             // Hardware rendering requested - provide OpenGL context
-            std::cout << "Core requested hardware rendering (OpenGL)" << std::endl;
+
+            // Mark that this core uses hardware rendering
+            if (g_coreInstance) {
+                g_coreInstance->m_usesHardwareRender = true;
+            }
             
             // Use the official struct from libretro.h
             retro_hw_render_callback* hw = (retro_hw_render_callback*)data;
-            std::cout << "HW render struct address: " << (void*)hw << std::endl;
-            std::cout << "  Address of hw->get_proc_address field: " << (void*)&hw->get_proc_address << std::endl;
-            std::cout << "  Address of hw->get_current_framebuffer field: " << (void*)&hw->get_current_framebuffer << std::endl;
-            
+
+
+
             // Log what the core is requesting
-            std::cout << "  Context type: " << hw->context_type << std::endl;
-            std::cout << "  GL version: " << hw->version_major << "." << hw->version_minor << std::endl;
-            std::cout << "  Depth buffer: " << (hw->depth ? "yes" : "no") << std::endl;
-            std::cout << "  Stencil buffer: " << (hw->stencil ? "yes" : "no") << std::endl;
-            
+
+
+
+
             // Log the callback pointers the core provided
-            std::cout << "  Core's context_reset: " << (void*)hw->context_reset << std::endl;
-            std::cout << "  Core's context_destroy: " << (void*)hw->context_destroy << std::endl;
-            std::cout << "  Core's get_current_framebuffer: " << (void*)hw->get_current_framebuffer << std::endl;
-            std::cout << "  Core's get_proc_address: " << (void*)hw->get_proc_address << std::endl;
-            
+
+
+
+
             // FIRST: Frontend provides these callbacks that the core will use during initialization
-            std::cout << "Our function addresses:" << std::endl;
-            std::cout << "  hw_get_proc_address: " << (void*)hw_get_proc_address << std::endl;
-            std::cout << "  hw_get_current_framebuffer: " << (void*)hw_get_current_framebuffer << std::endl;
-            
+
+
+
             hw->get_proc_address = hw_get_proc_address;
             hw->get_current_framebuffer = hw_get_current_framebuffer;
             
@@ -610,36 +653,32 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
             }
             // Set bottom_left_origin to true for OpenGL coordinate system
             hw->bottom_left_origin = true;
-            
-            std::cout << "Provided hardware render callbacks to core" << std::endl;
-            std::cout << "  After setting - get_proc_address: " << (void*)hw->get_proc_address << std::endl;
-            std::cout << "  After setting - get_current_framebuffer: " << (void*)hw->get_current_framebuffer << std::endl;
-            
+
+
+
             // Verify the struct content right before calling context_reset
-            std::cout << "Right before context_reset, verifying struct at " << (void*)hw << ":" << std::endl;
-            std::cout << "  hw->get_proc_address = " << (void*)hw->get_proc_address << std::endl;
-            std::cout << "  hw->get_current_framebuffer = " << (void*)hw->get_current_framebuffer << std::endl;
-            std::cout << "  hw->context_reset = " << (void*)hw->context_reset << std::endl;
-            
+
+
+
+
             // SECOND: Store the callbacks for later
             if (g_coreInstance) {
                 if (hw->context_reset) {
-                    std::cout << "Storing core's provided context_reset callback" << std::endl;
+
                     g_coreInstance->m_hw_context_reset = hw->context_reset;
                 }
                 if (hw->context_destroy) {
-                    std::cout << "Storing core's provided context_destroy callback" << std::endl;
+
                     g_coreInstance->m_hw_context_destroy = hw->context_destroy;
                 }
                 
                 // DON'T call context_reset here - will be called after creating real window
                 // The temporary context is just for loading, the real context is for rendering
-                std::cout << "context_reset will be called after creating the proper GL context" << std::endl;
+
             }
             
             // NOTE: Do NOT call context_reset again later - it's already been called
-            
-            std::cout << "Hardware render callbacks set" << std::endl;
+
             std::cout.flush(); // Make sure output is written before returning
             
             return true;
@@ -648,7 +687,7 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
             // Log unhandled environment calls
             static std::set<unsigned> logged_calls;
             if (logged_calls.find(cmd) == logged_calls.end()) {
-                std::cout << "Unhandled environment call: " << cmd << std::endl;
+
                 logged_calls.insert(cmd);
             }
             return false;
@@ -657,21 +696,25 @@ bool LibretroCore::environmentCallback(unsigned cmd, void* data) {
 
 void LibretroCore::callContextReset() {
     if (m_hw_context_reset) {
-        std::cout << "Calling core's context_reset callback..." << std::endl;
-        std::cout << "  Callback address: " << (void*)m_hw_context_reset << std::endl;
+
+
         m_hw_context_reset();
-        std::cout << "Context reset complete" << std::endl;
+
     } else {
-        std::cout << "No context_reset callback to call" << std::endl;
+
     }
 }
 
 void LibretroCore::callContextDestroy() {
-    if (m_hw_context_destroy) {
-        std::cout << "Calling core's context_destroy callback..." << std::endl;
-        m_hw_context_destroy();
-        std::cout << "Context destroy complete" << std::endl;
+    if (m_hw_context_destroy && m_coreLoaded) {
+
+        try {
+            m_hw_context_destroy();
+
+        } catch (...) {
+            std::cerr << "Exception in context_destroy callback" << std::endl;
+        }
     } else {
-        std::cout << "No context_destroy callback to call" << std::endl;
+
     }
 }

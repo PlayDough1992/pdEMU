@@ -1,0 +1,80 @@
+MIT License
+
+Copyright (c) 2025 PlayDough1992
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+THIRD-PARTY COMPONENTS
+
+pdEMU uses the following third-party libraries and components:
+
+1. SDL2 (Simple DirectMedia Layer)
+   License: zlib License
+   https://www.libsdl.org/
+
+2. Dear ImGui
+   License: MIT License
+   https://github.com/ocornut/imgui
+
+3. Libretro Cores
+   Various cores with individual licenses (GPL, MIT, BSD, etc.)
+   Each core retains its original license. See individual core documentation.
+   https://www.libretro.com/
+
+4. stb_image (by Sean Barrett)
+   License: Public Domain / MIT
+   https://github.com/nothings/stb
+
+LIBRETRO CORES INCLUDED
+
+The following libretro cores are distributed with pdEMU and are subject to
+their respective licenses:
+
+- mGBA (Mozilla Public License 2.0)
+- Mupen64Plus-Next (GPLv2)
+- PCSX-ReARMed (GPLv2)
+- Dolphin (GPLv2+)
+- Snes9x (Non-commercial license)
+- FCEU-mm (GPLv2)
+- Genesis Plus GX (Non-commercial license)
+- Gambatte (GPLv2)
+- Stella (GPLv2)
+- MAME (GPLv2+/BSD-3-Clause)
+- DeSmuME (GPLv2)
+- PPSSPP (GPLv2+)
+- melonDS (GPLv3)
+- FBNeo (Non-commercial license)
+- DOSBox Pure (GPLv2)
+- Flycast (GPLv2)
+- PicoDrive (MAME license)
+- ProSystem (GPLv2)
+
+Please refer to each core's documentation for complete license information.
+
+DISCLAIMER
+
+pdEMU is an emulator frontend that uses libretro cores. The software does not
+include any copyrighted game ROMs, BIOS files, or proprietary system files.
+Users are responsible for ensuring they have legal rights to any ROM files
+they use with this software.
+
+The pdEMU developers do not condone piracy and encourage users to only use
+ROM files that they legally own or that are in the public domain.

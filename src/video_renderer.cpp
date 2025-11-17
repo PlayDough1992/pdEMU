@@ -39,13 +39,13 @@ bool VideoRenderer::init(const char* title, int width, int height) {
         displayMode.h = 1080;
     }
 
-    // Create fullscreen borderless window
+    // Create fullscreen window
     m_window = SDL_CreateWindow(
         title,
         0, 0,
         displayMode.w,
         displayMode.h,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALWAYS_ON_TOP
+        SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP
     );
 
     if (!m_window) {
@@ -224,7 +224,8 @@ void VideoRenderer::clear() {
 
 void VideoRenderer::present() {
     if (m_initialized && m_renderer && m_texture) {
-        // Clear and render the texture
+        // Only clear and copy for software rendering
+        // Hardware rendering cores render directly to OpenGL FBO
         SDL_RenderClear(m_renderer);
         SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
         SDL_RenderPresent(m_renderer);

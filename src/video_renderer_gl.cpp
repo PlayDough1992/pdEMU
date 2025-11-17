@@ -1,6 +1,15 @@
 #include "video_renderer_gl.h"
+#include <SDL2/SDL_opengl.h>
 #include <iostream>
 #include <cstring>
+
+// Define missing GL constants if not available
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
 
 VideoRendererGL::VideoRendererGL()
     : m_window(nullptr)
@@ -60,8 +69,7 @@ bool VideoRendererGL::init(SDL_Window* window, int baseWidth, int baseHeight, fl
     updateViewport();
     
     m_initialized = true;
-    std::cout << "OpenGL renderer initialized: " << baseWidth << "x" << baseHeight << std::endl;
-    
+
     return true;
 }
 
@@ -101,21 +109,11 @@ void VideoRendererGL::updateFrame(const void* data, unsigned width, unsigned hei
 void VideoRendererGL::render() {
     if (!m_initialized) return;
     
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] glClear error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
+    // DON'T clear here - hardware-rendered cores (N64, PS1) render directly to the FBO
+    // Clearing would wipe out what the core just drew, causing flickering
+    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glBindTexture(GL_TEXTURE_2D, m_texture);
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] glBindTexture error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
 
     // Draw a textured quad
     glBegin(GL_QUADS);
@@ -124,29 +122,19 @@ void VideoRendererGL::render() {
         glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f, -1.0f);
         glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f, -1.0f);
     glEnd();
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] glBegin/glEnd error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
 }
 
 void VideoRendererGL::present() {
     if (!m_initialized) return;
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] (before swap) error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
+    
+    // Ensure all rendering is complete before swapping
+    glFinish();
+    
+    // Swap buffers to display the current frame
     SDL_GL_SwapWindow(m_window);
-    if (m_debugMode) {
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            std::cerr << "[OpenGL Debug] (after swap) error: 0x" << std::hex << err << std::dec << std::endl;
-        }
-    }
+    
+    // DON'T clear the back buffer - the core will render a full frame to it
+    // Clearing can cause flickering if there's any timing mismatch
 }
 
 void VideoRendererGL::setInternalScale(int scale) {

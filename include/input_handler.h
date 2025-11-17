@@ -36,6 +36,9 @@ public:
     bool shouldQuit() const { return m_quit; }
     void setQuit(bool quit) { m_quit = quit; }
     
+    // Set which controller to use for input (by instance ID)
+    void setActiveController(int instanceId);
+    
     // Set control scheme based on system
     void setControlScheme(ControlScheme scheme);
     void setControlScheme(const std::string& coreName);
@@ -61,6 +64,11 @@ private:
     // Analog Triggers (0 to 32767)
     int16_t m_analogL2; 
     int16_t m_analogR2; 
+    
+    // Pointer/touchscreen state (for DS touchscreen)
+    int16_t m_pointerX;
+    int16_t m_pointerY;
+    bool m_pointerPressed;
     
     void initKeyMappings();
     void initGBAMappings();
